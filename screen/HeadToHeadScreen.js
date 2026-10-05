@@ -1,8 +1,11 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
+import LeagueToggle from "../components/LeagueToggle";
+import { useLeague } from "../context/LeagueContext";
+import { FUTURES_TEAMS } from "../data/futuresMock";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -16,7 +19,7 @@ const COLORS = {
     rowDirect: "#1E2A4A",
 };
 
-const teams = ["LG", "두산", "SSG", "롯데", "삼성", "KIA", "NC", "한화", "키움", "KT"];
+const KBO_TEAMS = ["LG", "두산", "SSG", "롯데", "삼성", "KIA", "NC", "한화", "키움", "KT"];
 
 const getResult = (score1, score2) => {
     if (score1 > score2) return "team1";
@@ -25,7 +28,7 @@ const getResult = (score1, score2) => {
 };
 
 // 팀 선택 칩 목록
-function TeamPicker({ label, selected, onSelect }) {
+function TeamPicker({ label, teams, selected, onSelect }) {
     return (
         <View style={styles.pickerBlock}>
             <Text style={styles.pickerLabel}>{label}</Text>
@@ -64,6 +67,15 @@ export default function HeadToHeadScreen({ navigation }) {
     const [team1, setTeam1] = useState("LG");
     const [team2, setTeam2] = useState("두산");
     const [show, setShow] = useState(false);
+    const { league, isFutures } = useLeague();
+    const teams = isFutures ? FUTURES_TEAMS : KBO_TEAMS;
+
+    // 리그가 바뀌면 그 리그 팀으로 다시 선택
+    useEffect(() => {
+        setTeam1(teams[0]);
+        setTeam2(teams[1]);
+        setShow(false);
+    }, [league]);
 
     const data = [
         { label: "상대전적", left: "12승", right: "8승" },
@@ -102,8 +114,11 @@ export default function HeadToHeadScreen({ navigation }) {
                 <Text style={styles.screenTitle}>상대전적 비교</Text>
 
                 {/* 팀 선택 */}
-                <TeamPicker label="팀 1" selected={team1} onSelect={setTeam1} />
-                <TeamPicker label="팀 2" selected={team2} onSelect={setTeam2} />
+                {/* 리그 선택 */}
+                <LeagueToggle style={{ marginTop: 20 }} />
+
+                <TeamPicker label="팀 1" teams={teams} selected={team1} onSelect={setTeam1} />
+                <TeamPicker label="팀 2" teams={teams} selected={team2} onSelect={setTeam2} />
 
                 <TouchableOpacity
                     style={[styles.compareBtn, sameTeam && styles.compareBtnDisabled]}

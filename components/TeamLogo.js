@@ -14,6 +14,7 @@ const LOGOS = {
     KT: require("../assets/teams/kt.png"),
     NC: require("../assets/teams/nc.png"),
     키움: require("../assets/teams/kiwoom.png"),
+    고양: require("../assets/teams/kiwoom.png"), // 키움 퓨처스팀(고양 히어로즈)
 };
 
 // 로고가 없는 팀일 때 대신 보여줄 팀 색
@@ -28,6 +29,8 @@ const FALLBACK_COLORS = {
     KT: "#000000",
     NC: "#315288",
     키움: "#570514",
+    상무: "#2E5E3A", // 퓨처스리그 전용 팀 (로고 이미지 없으면 색 원)
+    울산: "#1B3B6F",
 };
 
 /**

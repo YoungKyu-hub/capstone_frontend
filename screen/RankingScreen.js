@@ -10,6 +10,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
+import LeagueToggle from "../components/LeagueToggle";
+import { useLeague } from "../context/LeagueContext";
+import { FUTURES_RANKING, FUTURES_DIVISIONS } from "../data/futuresMock";
 
 // ===== 디자인 색상 (피그마 Standings Detail 기준) =====
 const COLORS = {
@@ -69,15 +72,21 @@ const buildStandings = (data) => {
 function RankingScreen({ navigation }) {
     const [season, setSeason] = useState(2026);
     const [showSeasonList, setShowSeasonList] = useState(false);
+    const { isFutures } = useLeague();
+    const [division, setDivision] = useState("north"); // 퓨처스: 북부 / 남부
 
-    const standings = useMemo(
-        () => buildStandings(seasonData[season] || []),
-        [season]
-    );
+    const standings = useMemo(() => {
+        if (isFutures) {
+            return buildStandings(FUTURES_RANKING[season]?.[division] || []);
+        }
+        return buildStandings(seasonData[season] || []);
+    }, [season, isFutures, division]);
 
     const renderItem = ({ item }) => {
         let rowStyle = null;
-        if (item.rank <= 3) rowStyle = { backgroundColor: COLORS.rowDirect };
+        // 퓨처스리그는 포스트시즌 구분이 없어서 색 표시 안 함
+        if (isFutures) rowStyle = null;
+        else if (item.rank <= 3) rowStyle = { backgroundColor: COLORS.rowDirect };
         else if (item.rank <= 5) rowStyle = { backgroundColor: COLORS.rowWildcard };
 
         return (
@@ -117,7 +126,7 @@ function RankingScreen({ navigation }) {
             <View style={styles.logoCircle}>
                 <Text style={styles.logoEmoji}>⚾</Text>
             </View>
-            <Text style={styles.leagueName}>KBO 리그</Text>
+            <Text style={styles.leagueName}>{isFutures ? "퓨처스리그" : "KBO 리그"}</Text>
 
             {/* 시즌 선택 */}
             <View style={styles.seasonRow}>
@@ -161,6 +170,29 @@ function RankingScreen({ navigation }) {
                 </View>
             )}
 
+            {/* 리그 선택 */}
+            <LeagueToggle style={styles.toggle} />
+
+            {/* 퓨처스리그: 북부 / 남부 선택 */}
+            {isFutures && (
+                <View style={styles.divisionRow}>
+                    {Object.entries(FUTURES_DIVISIONS).map(([key, div]) => {
+                        const active = division === key;
+                        return (
+                            <TouchableOpacity
+                                key={key}
+                                style={[styles.divisionChip, active && styles.divisionChipActive]}
+                                onPress={() => setDivision(key)}
+                            >
+                                <Text style={[styles.divisionText, active && { color: COLORS.pill }]}>
+                                    {div.label}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
+            )}
+
             {/* 표 헤더 */}
             <View style={styles.tableHeader}>
                 <Text style={[styles.headCell, styles.colRank]}>#</Text>
@@ -175,7 +207,13 @@ function RankingScreen({ navigation }) {
         </View>
     );
 
-    const ListFooter = (
+    const ListFooter = isFutures ? (
+        <View style={styles.legend}>
+            <Text style={styles.legendText}>
+                퓨처스리그는 북부 · 남부리그별로 순위를 매겨요
+            </Text>
+        </View>
+    ) : (
         <View style={styles.legend}>
             <View style={styles.legendItem}>
                 <View style={[styles.legendBox, { backgroundColor: COLORS.rowDirect }]} />
@@ -262,13 +300,28 @@ const styles = StyleSheet.create({
     },
     dropdownText: { color: COLORS.text },
 
+    // 리그 선택
+    toggle: { marginTop: 20 },
+    divisionRow: { flexDirection: "row", marginTop: 12 },
+    divisionChip: {
+        height: 32,
+        paddingHorizontal: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: COLORS.divider,
+        justifyContent: "center",
+        marginRight: 8,
+    },
+    divisionChipActive: { borderColor: COLORS.pill },
+    divisionText: { color: COLORS.subText, fontSize: 13, fontWeight: "700" },
+
     // 표
     tableHeader: {
         flexDirection: "row",
         alignItems: "center",
         paddingHorizontal: 10,
         paddingVertical: 12,
-        marginTop: 28,
+        marginTop: 20,
         marginBottom: 12,
         borderBottomWidth: 1,
         borderColor: COLORS.divider,

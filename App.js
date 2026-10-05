@@ -7,12 +7,14 @@ import LoginScreen from "./screen/LoginScreen";
 import HomeScreen from "./screen/HomeScreen";
 import PredictScreen from "./screen/PredictScreen";
 import { UserProvider } from "./context/UserContext";
+import { LeagueProvider } from "./context/LeagueContext";
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   return (
     <UserProvider>
+      <LeagueProvider>
       <NavigationContainer>
         <Stack.Navigator initialRouteName="Login">
 
@@ -43,6 +45,7 @@ export default function App() {
 
         </Stack.Navigator>
       </NavigationContainer>
+      </LeagueProvider>
     </UserProvider>
   );
 }

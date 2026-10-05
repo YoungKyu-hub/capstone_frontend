@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-nati
 import { SafeAreaView } from "react-native-safe-area-context";
 import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
+import LeagueToggle from "../components/LeagueToggle";
+import { useLeague } from "../context/LeagueContext";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -61,7 +63,9 @@ export default function SeasonRecordScreen({ navigation }) {
 
     const mainKey = mainMap[mainTab];
     const subKey = subMap[mainKey]?.[subTab];
-    const current = data[mainKey]?.[subKey] || [];
+    const { isFutures } = useLeague();
+    // 퓨처스리그 선수 기록은 크롤링(백엔드) 연결 후 채울 예정
+    const current = isFutures ? [] : data[mainKey]?.[subKey] || [];
     const isTeam = mainKey === "team";
 
     return (
@@ -84,6 +88,9 @@ export default function SeasonRecordScreen({ navigation }) {
                     <Text style={styles.logoEmoji}>📈</Text>
                 </View>
                 <Text style={styles.screenTitle}>시즌 기록</Text>
+
+                {/* 리그 선택 */}
+                <LeagueToggle style={{ marginTop: 20 }} />
 
                 {/* 메인 탭: 타자 / 투수 / 팀 */}
                 <View style={styles.pillRow}>
@@ -169,7 +176,11 @@ export default function SeasonRecordScreen({ navigation }) {
                 })}
 
                 {current.length === 0 && (
-                    <Text style={styles.empty}>기록 데이터가 없습니다.</Text>
+                    <Text style={styles.empty}>
+                        {isFutures
+                            ? "퓨처스리그 기록은 데이터 연결 후 보여 드려요."
+                            : "기록 데이터가 없습니다."}
+                    </Text>
                 )}
             </ScrollView>
         </SafeAreaView>
