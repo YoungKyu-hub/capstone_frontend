@@ -6,6 +6,7 @@ import SignupScreen from "./screen/SignupScreen";
 import LoginScreen from "./screen/LoginScreen";
 import HomeScreen from "./screen/HomeScreen";
 import PredictScreen from "./screen/PredictScreen";
+import GameRatingScreen from "./screen/GameRatingScreen";
 import { UserProvider } from "./context/UserContext";
 import { LeagueProvider } from "./context/LeagueContext";
 
@@ -40,6 +41,12 @@ export default function App() {
           <Stack.Screen
             name="Predict"
             component={PredictScreen}
+            options={{ headerShown: false }}
+          />
+
+          <Stack.Screen
+            name="GameRating"
+            component={GameRatingScreen}
             options={{ headerShown: false }}
           />
 

@@ -17,6 +17,9 @@ import PowerAnalysisModal from "../components/PowerAnalysisModal";
 import { analyzeMatch } from "../utils/powerAnalysis";
 import { weatherIcon, rainLevel } from "../utils/weather";
 import { STADIUMS, TEAM_STATS, H2H, WEATHER } from "../data/predictMock";
+import MomStrip from "../components/MomStrip";
+import { rateGame } from "../utils/playerRating";
+import { GAME_RESULTS, MY_PREDICTIONS } from "../data/gameResultMock";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -28,6 +31,7 @@ const COLORS = {
     divider: "#2C2C3E",
     accent: "#E8826B",
     rowDirect: "#1E2A4A",
+    result: "#3BA98B", // 경기 결과 표시 색 (내 선택 주황과 구분)
 };
 
 const dateList = ["4/13", "4/14", "4/15", "4/16"];
@@ -105,9 +109,102 @@ function WeatherChip({ stadium, hourly, onPress }) {
     );
 }
 
-export default function PredictScreen() {
+// ===== 경기 종료 카드: 점수 + 내 선택/실제 결과 + MOM =====
+function FinishedCard({ item, result, picked, options, onOpenRatings }) {
+    const { score } = result;
+    const { mom } = rateGame({ home: item.home, away: item.away, ...result });
+
+    // 실제 결과: 홈팀 이름 / 원정팀 이름 / "draw"
+    const outcome =
+        score.home > score.away ? item.home : score.away > score.home ? item.away : "draw";
+    const hit = picked === outcome;
+
+    let status = { text: "예측 안 함", style: styles.statusNone };
+    if (picked) {
+        status = hit
+            ? { text: "✓ 예측 적중", style: styles.statusHit }
+            : { text: "✗ 예측 실패", style: styles.statusMiss };
+    }
+
+    return (
+        <View style={styles.card}>
+            {/* 상단: 경기 종료 + 적중 여부 */}
+            <View style={styles.topRow}>
+                <View style={styles.finalChip}>
+                    <Text style={styles.finalChipText}>경기 종료</Text>
+                </View>
+                <View style={[styles.statusBadge, status.style]}>
+                    <Text style={styles.statusText}>{status.text}</Text>
+                </View>
+            </View>
+
+            {/* 팀 + 점수 */}
+            <View style={styles.vsRow}>
+                <TeamBadge team={item.home} side="홈" />
+                <View style={styles.scoreBox}>
+                    <Text style={[styles.scoreNum, score.home < score.away && styles.scoreLose]}>
+                        {score.home}
+                    </Text>
+                    <Text style={styles.scoreColon}>:</Text>
+                    <Text style={[styles.scoreNum, score.away < score.home && styles.scoreLose]}>
+                        {score.away}
+                    </Text>
+                </View>
+                <TeamBadge team={item.away} side="원정" />
+            </View>
+
+            {/* 승/무/패: 내 선택(주황) / 실제 결과(초록) */}
+            <View style={styles.buttonContainer}>
+                {options.map((opt) => {
+                    const isPicked = picked === opt.value;
+                    const isResult = outcome === opt.value;
+                    return (
+                        <View
+                            key={opt.value}
+                            style={[
+                                styles.predictButton,
+                                isPicked && styles.selected,
+                                isResult && styles.resultButton,
+                                isPicked && isResult && styles.hitButton,
+                            ]}
+                        >
+                            <Text
+                                style={[
+                                    styles.buttonText,
+                                    !isPicked && !isResult && styles.buttonTextDim,
+                                ]}
+                            >
+                                {isPicked && isResult ? "✓ " : ""}
+                                {opt.label}
+                            </Text>
+                        </View>
+                    );
+                })}
+            </View>
+
+            {/* 색 안내 */}
+            <View style={styles.legendRow}>
+                <View style={[styles.legendDot, { backgroundColor: COLORS.accent }]} />
+                <Text style={styles.legendText}>내 선택</Text>
+                <View style={[styles.legendDot, { backgroundColor: COLORS.result, marginLeft: 12 }]} />
+                <Text style={styles.legendText}>경기 결과</Text>
+            </View>
+
+            {/* MOM */}
+            <MomStrip mom={mom} />
+
+            {/* 전체 평점 화면으로 */}
+            <TouchableOpacity style={styles.ratingsLink} onPress={onOpenRatings} hitSlop={8}>
+                <Text style={styles.ratingsLinkText}>전체 평점 보기 ›</Text>
+            </TouchableOpacity>
+        </View>
+    );
+}
+
+export default function PredictScreen({ navigation }) {
     const [selectedDate, setSelectedDate] = useState("4/13");
-    const [selectedPredict, setSelectedPredict] = useState({});
+    // 이미 해 둔 예측을 불러와 시작 (나중에 Firestore에서 읽기)
+    const [selectedPredict, setSelectedPredict] = useState(MY_PREDICTIONS);
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedMatch, setSelectedMatch] = useState(null);
     const [weatherVisible, setWeatherVisible] = useState(false);
@@ -125,6 +222,27 @@ export default function PredictScreen() {
             { value: "draw", label: "무승부" },
             { value: item.away, label: `${item.away} 승` },
         ];
+
+        // 경기 종료 → 결과 카드
+        const result = GAME_RESULTS[predictKey];
+        if (result) {
+            return (
+                <FinishedCard
+                    item={item}
+                    result={result}
+                    picked={picked}
+                    options={options}
+                    onOpenRatings={() =>
+                        navigation.navigate("GameRating", {
+                            date: selectedDate,
+                            gameId: item.id,
+                            home: item.home,
+                            away: item.away,
+                        })
+                    }
+                />
+            );
+        }
 
         return (
             <View style={styles.card}>
@@ -392,6 +510,44 @@ const styles = StyleSheet.create({
         marginHorizontal: 4,
     },
     selected: { backgroundColor: COLORS.accent },
+
+    // 경기 종료 카드
+    resultButton: { backgroundColor: COLORS.result },
+    hitButton: { borderWidth: 2, borderColor: COLORS.accent }, // 적중: 결과 색 + 주황 테두리
+    buttonTextDim: { color: COLORS.subText },
+    finalChip: {
+        height: 26,
+        paddingHorizontal: 10,
+        borderRadius: 13,
+        backgroundColor: COLORS.chip,
+        justifyContent: "center",
+    },
+    finalChipText: { color: COLORS.subText, fontSize: 12, fontWeight: "700" },
+    statusBadge: {
+        height: 26,
+        paddingHorizontal: 10,
+        borderRadius: 13,
+        justifyContent: "center",
+    },
+    statusHit: { backgroundColor: COLORS.result },
+    statusMiss: { backgroundColor: "#5A2E2E" },
+    statusNone: { backgroundColor: COLORS.chip },
+    statusText: { color: COLORS.text, fontSize: 12, fontWeight: "700" },
+    scoreBox: { flexDirection: "row", alignItems: "center" },
+    scoreNum: { color: COLORS.text, fontSize: 34, fontWeight: "800", width: 44, textAlign: "center" },
+    scoreLose: { color: COLORS.subText },
+    scoreColon: { color: COLORS.subText, fontSize: 26, fontWeight: "700", marginHorizontal: 2 },
+    legendRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "flex-end",
+        marginTop: -6,
+        marginBottom: 12,
+    },
+    legendDot: { width: 8, height: 8, borderRadius: 4, marginRight: 4 },
+    legendText: { color: COLORS.subText, fontSize: 11 },
+    ratingsLink: { alignSelf: "flex-end", marginTop: 10 },
+    ratingsLinkText: { color: COLORS.accent, fontSize: 13, fontWeight: "700" },
     buttonText: { color: COLORS.text, fontSize: 14, fontWeight: "700" },
 
     // AI 코멘트
