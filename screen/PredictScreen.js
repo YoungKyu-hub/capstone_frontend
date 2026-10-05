@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import {
     View,
     Text,
-    Modal,
     TouchableOpacity,
     FlatList,
     StyleSheet,
@@ -10,8 +9,14 @@ import {
     StatusBar,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
+import WeatherSheet from "../components/WeatherSheet";
+import PowerAnalysisModal from "../components/PowerAnalysisModal";
+import { analyzeMatch } from "../utils/powerAnalysis";
+import { weatherIcon, rainLevel } from "../utils/weather";
+import { STADIUMS, TEAM_STATS, H2H, WEATHER } from "../data/predictMock";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -66,16 +71,54 @@ function TeamBadge({ team, side }) {
     );
 }
 
+// 카드 안 날씨 칩: 아이콘 + 기온 + 강수확률 (누르면 날씨 바텀시트)
+function WeatherChip({ stadium, hourly, onPress }) {
+    // 돔구장은 날씨 영향 없음 → 누를 수 없게
+    if (stadium?.dome) {
+        return (
+            <View style={styles.weatherChip}>
+                <Ionicons name="home-outline" size={13} color={COLORS.subText} />
+                <Text style={styles.weatherChipText}>돔구장</Text>
+            </View>
+        );
+    }
+    if (!hourly || hourly.length === 0) return null;
+
+    const start = hourly[0];
+    const rainy = rainLevel(hourly) === "high";
+
+    return (
+        <TouchableOpacity
+            style={[styles.weatherChip, rainy && styles.weatherChipRain]}
+            onPress={onPress}
+            activeOpacity={0.8}
+        >
+            <Ionicons
+                name={rainy ? "umbrella" : weatherIcon(start)}
+                size={13}
+                color={rainy ? COLORS.accent : "#FFD36B"}
+            />
+            <Text style={styles.weatherChipText}>
+                {start.tmp}° · {Math.max(...hourly.map((h) => h.pop))}%
+            </Text>
+        </TouchableOpacity>
+    );
+}
+
 export default function PredictScreen() {
     const [selectedDate, setSelectedDate] = useState("4/13");
     const [selectedPredict, setSelectedPredict] = useState({});
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedMatch, setSelectedMatch] = useState(null);
+    const [weatherVisible, setWeatherVisible] = useState(false);
+    const [weatherMatch, setWeatherMatch] = useState(null);
 
     const renderGameCard = ({ item }) => {
         // 날짜 + 경기 id로 예측 저장 (다른 날짜의 같은 id와 섞이지 않게)
         const predictKey = `${selectedDate}-${item.id}`;
         const picked = selectedPredict[predictKey];
+        const stadium = STADIUMS[item.home];
+        const hourly = WEATHER[predictKey];
 
         const options = [
             { value: item.home, label: `${item.home} 승` },
@@ -85,9 +128,26 @@ export default function PredictScreen() {
 
         return (
             <View style={styles.card}>
-                {/* 상단: 시간 + 전력분석 */}
+                {/* 상단: 시간·구장 + 날씨 칩 + 전력분석 */}
                 <View style={styles.topRow}>
-                    <Text style={styles.timeText}>🕒 {item.time}</Text>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.timeText}>🕒 {item.time}</Text>
+                        {stadium && (
+                            <Text style={styles.stadiumText} numberOfLines={1}>
+                                {stadium.name}
+                            </Text>
+                        )}
+                    </View>
+
+                    <WeatherChip
+                        stadium={stadium}
+                        hourly={hourly}
+                        onPress={() => {
+                            setWeatherMatch(item);
+                            setWeatherVisible(true);
+                        }}
+                    />
+
                     <TouchableOpacity
                         style={styles.analysisButton}
                         onPress={() => {
@@ -191,54 +251,25 @@ export default function PredictScreen() {
             />
 
             {/* 전력 분석 팝업 */}
-            <Modal
+            <PowerAnalysisModal
                 visible={modalVisible}
-                transparent={true}
-                animationType="fade"
-                onRequestClose={() => setModalVisible(false)}
-            >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContainer}>
-                        <Text style={styles.modalTitle}>전력 분석</Text>
+                onClose={() => setModalVisible(false)}
+                analysis={
+                    selectedMatch &&
+                    analyzeMatch(selectedMatch.home, selectedMatch.away, TEAM_STATS, H2H)
+                }
+                aiComment={selectedMatch?.aiComment}
+            />
 
-                        {selectedMatch && (
-                            <>
-                                <View style={styles.modalVsRow}>
-                                    <TeamBadge team={selectedMatch.home} side="홈" />
-                                    <Text style={styles.vsText}>VS</Text>
-                                    <TeamBadge team={selectedMatch.away} side="원정" />
-                                </View>
-
-                                <View style={styles.modalBox}>
-                                    <Text style={styles.modalText}>
-                                        최근 경기력과 팀 흐름을 분석한 결과{" "}
-                                        <Text style={styles.modalStrong}>
-                                            {selectedMatch.home}
-                                        </Text>
-                                        의 우세가 예상됩니다.
-                                    </Text>
-                                </View>
-
-                                {["최근 승률 우세", "타선 흐름 안정적", "홈 경기 이점 존재"].map(
-                                    (point) => (
-                                        <View key={point} style={styles.pointRow}>
-                                            <View style={styles.pointDot} />
-                                            <Text style={styles.pointText}>{point}</Text>
-                                        </View>
-                                    )
-                                )}
-                            </>
-                        )}
-
-                        <TouchableOpacity
-                            style={styles.closeButton}
-                            onPress={() => setModalVisible(false)}
-                        >
-                            <Text style={styles.closeButtonText}>닫기</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
+            {/* 경기장 날씨 바텀시트 */}
+            <WeatherSheet
+                visible={weatherVisible}
+                onClose={() => setWeatherVisible(false)}
+                match={weatherMatch}
+                dateLabel={`${selectedDate} (${getDayOfWeek(selectedDate)})`}
+                stadium={weatherMatch && STADIUMS[weatherMatch.home]}
+                hourly={weatherMatch && WEATHER[`${selectedDate}-${weatherMatch.id}`]}
+            />
         </SafeAreaView>
     );
 }
@@ -302,6 +333,22 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     timeText: { color: COLORS.subText, fontSize: 13 },
+    stadiumText: { color: COLORS.subText, fontSize: 11, marginTop: 3 },
+
+    // 날씨 칩
+    weatherChip: {
+        flexDirection: "row",
+        alignItems: "center",
+        height: 28,
+        paddingHorizontal: 10,
+        borderRadius: 14,
+        backgroundColor: COLORS.chip,
+        borderWidth: 1,
+        borderColor: COLORS.chip,
+        marginRight: 6,
+    },
+    weatherChipRain: { borderColor: COLORS.accent },
+    weatherChipText: { color: COLORS.text, fontSize: 12, fontWeight: "700", marginLeft: 4 },
     analysisButton: {
         height: 28,
         paddingHorizontal: 12,
@@ -358,66 +405,4 @@ const styles = StyleSheet.create({
 
     empty: { color: COLORS.subText, textAlign: "center", marginTop: 40 },
 
-    // 전력 분석 팝업
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: "rgba(0,0,0,0.7)",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    modalContainer: {
-        width: "88%",
-        backgroundColor: COLORS.bg,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: COLORS.divider,
-        padding: 22,
-    },
-    modalTitle: {
-        color: COLORS.text,
-        fontSize: 20,
-        fontWeight: "700",
-        textAlign: "center",
-    },
-    modalVsRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-around",
-        marginTop: 18,
-        marginBottom: 18,
-    },
-    modalBox: {
-        backgroundColor: COLORS.rowDirect,
-        borderRadius: 12,
-        padding: 14,
-        marginBottom: 12,
-    },
-    modalText: { color: COLORS.text, fontSize: 14, lineHeight: 22 },
-    modalStrong: { color: COLORS.accent, fontWeight: "700" },
-    pointRow: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: COLORS.card,
-        borderRadius: 8,
-        height: 40,
-        paddingHorizontal: 12,
-        marginBottom: 8,
-    },
-    pointDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-        backgroundColor: COLORS.accent,
-        marginRight: 10,
-    },
-    pointText: { color: COLORS.text, fontSize: 14 },
-    closeButton: {
-        marginTop: 12,
-        height: 46,
-        borderRadius: 23,
-        backgroundColor: COLORS.accent,
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    closeButtonText: { color: COLORS.text, fontWeight: "700", fontSize: 15 },
 });
