@@ -20,6 +20,9 @@ import { STADIUMS, TEAM_STATS, H2H, WEATHER } from "../data/predictMock";
 import MomStrip from "../components/MomStrip";
 import { rateGame } from "../utils/playerRating";
 import { GAME_RESULTS, MY_PREDICTIONS } from "../data/gameResultMock";
+import LeagueToggle from "../components/LeagueToggle";
+import { useLeague } from "../context/LeagueContext";
+import { FUTURES_PREDICT_GAMES, FUTURES_STADIUMS } from "../data/futuresMock";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -203,6 +206,7 @@ function FinishedCard({ item, result, picked, options, onOpenRatings }) {
 
 export default function PredictScreen({ navigation }) {
     const [selectedDate, setSelectedDate] = useState("4/13");
+    const { isFutures } = useLeague();
     // 이미 해 둔 예측을 불러와 시작 (나중에 Firestore에서 읽기)
     const [selectedPredict, setSelectedPredict] = useState(MY_PREDICTIONS);
     const [modalVisible, setModalVisible] = useState(false);
@@ -241,6 +245,52 @@ export default function PredictScreen({ navigation }) {
                         })
                     }
                 />
+            );
+        }
+
+        // 퓨처스리그 경기 카드: 날씨·전력분석 데이터가 아직 없어서 예측만
+        if (isFutures) {
+            return (
+                <View style={styles.card}>
+                    <View style={styles.topRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.timeText}>🕒 {item.time}</Text>
+                            <Text style={styles.stadiumText} numberOfLines={1}>
+                                {FUTURES_STADIUMS[item.home] || ""}
+                            </Text>
+                        </View>
+                        <View style={styles.futuresChip}>
+                            <Text style={styles.futuresChipText}>퓨처스</Text>
+                        </View>
+                    </View>
+
+                    <View style={styles.vsRow}>
+                        <TeamBadge team={item.home} side="홈" />
+                        <Text style={styles.vsText}>VS</Text>
+                        <TeamBadge team={item.away} side="원정" />
+                    </View>
+
+                    <View style={[styles.buttonContainer, { marginBottom: 0 }]}>
+                        {options.map((opt) => {
+                            const active = picked === opt.value;
+                            return (
+                                <TouchableOpacity
+                                    key={opt.value}
+                                    style={[styles.predictButton, active && styles.selected]}
+                                    activeOpacity={0.8}
+                                    onPress={() =>
+                                        setSelectedPredict({
+                                            ...selectedPredict,
+                                            [predictKey]: opt.value,
+                                        })
+                                    }
+                                >
+                                    <Text style={styles.buttonText}>{opt.label}</Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </View>
             );
         }
 
@@ -328,6 +378,9 @@ export default function PredictScreen({ navigation }) {
             </View>
             <Text style={styles.screenTitle}>승부예측</Text>
 
+            {/* 리그 선택: KBO 리그 / 퓨처스리그 */}
+            <LeagueToggle style={{ marginTop: 20 }} />
+
             {/* 날짜 선택 */}
             <ScrollView
                 horizontal
@@ -357,7 +410,7 @@ export default function PredictScreen({ navigation }) {
             <StatusBar barStyle="light-content" />
 
             <FlatList
-                data={gameData[selectedDate] || []}
+                data={(isFutures ? FUTURES_PREDICT_GAMES : gameData)[selectedDate] || []}
                 keyExtractor={(item) => `${selectedDate}-${item.id}`}
                 renderItem={renderGameCard}
                 ListHeaderComponent={ListHeader}
@@ -510,6 +563,15 @@ const styles = StyleSheet.create({
         marginHorizontal: 4,
     },
     selected: { backgroundColor: COLORS.accent },
+    futuresChip: {
+        height: 26,
+        paddingHorizontal: 10,
+        borderRadius: 13,
+        borderWidth: 1,
+        borderColor: COLORS.accent,
+        justifyContent: "center",
+    },
+    futuresChipText: { color: COLORS.accent, fontSize: 12, fontWeight: "700" },
 
     // 경기 종료 카드
     resultButton: { backgroundColor: COLORS.result },

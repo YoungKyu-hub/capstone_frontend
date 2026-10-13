@@ -35,3 +35,55 @@ export const FUTURES_RANKING = {
         ],
     },
 };
+
+// 퓨처스 팀 → 2군 홈구장 (※ 임시값, 2026 시즌 실제 구장 확인 필요)
+export const FUTURES_STADIUMS = {
+    상무: "문경 상무야구장",
+    한화: "서산 한화이글스 2군 구장",
+    LG: "이천 LG챔피언스파크",
+    SSG: "강화 SSG퓨처스필드",
+    두산: "이천 베어스파크",
+    고양: "고양 국가대표 야구훈련장",
+    울산: "울산 문수야구장",
+    롯데: "김해 상동야구장",
+    NC: "마산야구장",
+    KT: "익산 야구장",
+    KIA: "함평 기아챌린저스필드",
+    삼성: "경산 볼파크",
+};
+
+// 승부예측 화면용 퓨처스 경기 (날짜 형식은 PredictScreen 과 같음, id 는 KBO 경기와 겹치지 않게 "f")
+export const FUTURES_PREDICT_GAMES = {
+    "4/13": [
+        { id: "f1", home: "상무", away: "두산", time: "13:00" },
+        { id: "f2", home: "울산", away: "NC", time: "13:00" },
+    ],
+    "4/14": [
+        { id: "f3", home: "한화", away: "LG", time: "13:00" },
+        { id: "f4", home: "KIA", away: "롯데", time: "13:00" },
+    ],
+    "4/15": [
+        { id: "f5", home: "SSG", away: "고양", time: "13:00" },
+        { id: "f6", home: "삼성", away: "KT", time: "13:00" },
+    ],
+    "4/16": [
+        { id: "f7", home: "상무", away: "한화", time: "13:00" },
+        { id: "f8", home: "울산", away: "KIA", time: "13:00" },
+    ],
+};
+
+// 일정 화면용 퓨처스 경기 (날짜 형식은 ScheduleScreen 과 같음)
+export const FUTURES_SCHEDULE = {
+    "2026-06-03": [
+        { home: "LG", away: "두산", time: "13:00" },
+        { home: "상무", away: "SSG", time: "13:00" },
+        { home: "울산", away: "롯데", time: "13:00" },
+    ],
+    "2026-06-05": [
+        { home: "한화", away: "고양", time: "13:00" },
+        { home: "KT", away: "NC", time: "13:00" },
+    ],
+    "2026-06-10": [
+        { home: "KIA", away: "삼성", time: "13:00" },
+    ],
+};

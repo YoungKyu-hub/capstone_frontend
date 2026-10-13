@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
     View,
     Text,
@@ -11,6 +11,9 @@ import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
+import LeagueToggle from "../components/LeagueToggle";
+import { useLeague } from "../context/LeagueContext";
+import { FUTURES_SCHEDULE, FUTURES_TEAMS, FUTURES_STADIUMS } from "../data/futuresMock";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -40,7 +43,7 @@ const gameData = {
     ],
 };
 
-const teams = ["ALL", "LG", "두산", "SSG", "롯데", "삼성", "KIA", "NC", "한화", "키움", "KT"];
+const KBO_TEAMS = ["ALL", "LG", "두산", "SSG", "롯데", "삼성", "KIA", "NC", "한화", "키움", "KT"];
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
 const getDaysInMonth = (year, month) => {
@@ -83,6 +86,17 @@ export default function ScheduleScreen() {
     const [modalVisible, setModalVisible] = useState(false);
     const [filterTeam, setFilterTeam] = useState("ALL");
 
+    // 리그 선택 (기록실·승부예측과 같은 값을 공유)
+    const { league, isFutures } = useLeague();
+    const teams = isFutures ? ["ALL", ...FUTURES_TEAMS] : KBO_TEAMS;
+    const schedule = isFutures ? FUTURES_SCHEDULE : gameData;
+
+    // 리그가 바뀌면 팀 필터와 열린 팝업 초기화
+    useEffect(() => {
+        setFilterTeam("ALL");
+        setModalVisible(false);
+    }, [league]);
+
     const days = getDaysInMonth(year, month);
     // 1일이 무슨 요일인지에 맞춰 앞쪽을 빈 칸으로 채움
     const leadingBlanks = days[0].getDay();
@@ -109,7 +123,10 @@ export default function ScheduleScreen() {
 
     // 날짜별 경기 필터
     const getGamesByDate = (key) => {
-        const games = gameData[key] || [];
+        const games = (schedule[key] || []).map((g) => ({
+            ...g,
+            stadium: g.stadium || (isFutures ? FUTURES_STADIUMS[g.home] : ""),
+        }));
         if (filterTeam === "ALL") return games;
         return games.filter((g) => g.home === filterTeam || g.away === filterTeam);
     };
@@ -130,6 +147,9 @@ export default function ScheduleScreen() {
                     <Text style={styles.logoEmoji}>📅</Text>
                 </View>
                 <Text style={styles.screenTitle}>경기 일정</Text>
+
+                {/* 리그 선택 */}
+                <LeagueToggle style={{ marginTop: 20 }} />
 
                 {/* 월 이동 */}
                 <View style={styles.monthBar}>
@@ -263,7 +283,12 @@ export default function ScheduleScreen() {
                                     <View key={i} style={styles.gameBox}>
                                         <View style={styles.gameInfoRow}>
                                             <Text style={styles.gameInfo}>🕒 {item.time}</Text>
-                                            <Text style={styles.gameInfo}>🏟 {item.stadium}</Text>
+                                            <Text
+                                                style={[styles.gameInfo, styles.stadiumInfo]}
+                                                numberOfLines={1}
+                                            >
+                                                🏟 {item.stadium}
+                                            </Text>
                                         </View>
 
                                         <View style={styles.matchRow}>
@@ -449,6 +474,7 @@ const styles = StyleSheet.create({
     },
     gameInfoRow: { flexDirection: "row", justifyContent: "space-between" },
     gameInfo: { color: COLORS.subText, fontSize: 13 },
+    stadiumInfo: { flexShrink: 1, marginLeft: 12, textAlign: "right" },
     matchRow: {
         flexDirection: "row",
         alignItems: "center",
