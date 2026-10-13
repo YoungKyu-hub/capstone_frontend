@@ -6,6 +6,7 @@ import {
     FlatList,
     ScrollView,
     TouchableOpacity,
+    ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import KboTitle from "../components/KboTitle";
@@ -13,6 +14,7 @@ import TeamLogo from "../components/TeamLogo";
 import LeagueToggle from "../components/LeagueToggle";
 import { useLeague } from "../context/LeagueContext";
 import { FUTURES_RANKING, FUTURES_DIVISIONS } from "../data/futuresMock";
+import { useFirestoreDoc, formatUpdated } from "../utils/firestoreData";
 
 // ===== 디자인 색상 (피그마 Standings Detail 기준) =====
 const COLORS = {
@@ -26,26 +28,8 @@ const COLORS = {
     rowWildcard: "#3A1E1E", // 4~5위: 와일드카드
 };
 
-// ===== 2026 시즌 데이터 =====
-const rankingData = [
-    { id: 1, team: "LG", game: 31, win: 20, lose: 10, draw: 1, streak: "3승", last10: "7승3패", home: "10-5", away: "10-5" },
-    { id: 2, team: "두산", game: 30, win: 17, lose: 12, draw: 1, streak: "1패", last10: "5승5패", home: "9-6", away: "9-6" },
-    { id: 3, team: "SSG", game: 30, win: 22, lose: 8, draw: 0, streak: "2승", last10: "6승4패", home: "8-7", away: "9-6" },
-    { id: 4, team: "롯데", game: 30, win: 8, lose: 21, draw: 1, streak: "1승", last10: "5승5패", home: "7-8", away: "8-7" },
-    { id: 5, team: "삼성", game: 31, win: 14, lose: 16, draw: 1, streak: "2패", last10: "4승6패", home: "7-9", away: "7-7" },
-    { id: 6, team: "KIA", game: 31, win: 10, lose: 20, draw: 1, streak: "1패", last10: "4승6패", home: "8-9", away: "7-7" },
-];
-
-// ===== 시즌별 데이터 =====
-const seasonData = {
-    2026: rankingData,
-    2025: [
-        { id: 1, team: "한화", game: 144, win: 80, lose: 60, draw: 4, streak: "2승", last10: "7승3패", home: "40-30", away: "40-30" },
-    ],
-    2024: [
-        { id: 1, team: "기아", game: 144, win: 85, lose: 55, draw: 4, streak: "1승", last10: "8승2패", home: "42-28", away: "43-27" },
-    ],
-};
+// KBO 리그 순위는 Firestore rankings/kbo 문서에서 읽어 온다 (백엔드가 KBO 순위표를 옮겨 올린 것)
+// 퓨처스리그는 아직 임시 데이터(data/futuresMock.js)
 
 const getWinRate = (win, lose) => (win + lose === 0 ? 0 : win / (win + lose));
 
@@ -75,12 +59,22 @@ function RankingScreen({ navigation }) {
     const { isFutures } = useLeague();
     const [division, setDivision] = useState("north"); // 퓨처스: 북부 / 남부
 
+    const { data: rankDoc, loading, error, reload } = useFirestoreDoc("rankings", "kbo");
+
     const standings = useMemo(() => {
         if (isFutures) {
             return buildStandings(FUTURES_RANKING[season]?.[division] || []);
         }
-        return buildStandings(seasonData[season] || []);
-    }, [season, isFutures, division]);
+        // KBO 공식 순위표 값(순위·승률·게임차)을 그대로 사용
+        if (!rankDoc || rankDoc.season !== season) return [];
+        return rankDoc.rows.map((r) => ({
+            ...r,
+            id: r.team,
+            gb: r.rank === 1 || r.gb === "0" ? "-" : r.gb,
+        }));
+    }, [season, isFutures, division, rankDoc]);
+
+    const showLoading = !isFutures && loading;
 
     const renderItem = ({ item }) => {
         let rowStyle = null;
@@ -207,6 +201,12 @@ function RankingScreen({ navigation }) {
         </View>
     );
 
+    const SourceNote = !isFutures && rankDoc && rankDoc.season === season && (
+        <Text style={styles.sourceText}>
+            자료 출처: KBO · {formatUpdated(rankDoc.updatedAt)} 업데이트
+        </Text>
+    );
+
     const ListFooter = isFutures ? (
         <View style={styles.legend}>
             <Text style={styles.legendText}>
@@ -223,6 +223,7 @@ function RankingScreen({ navigation }) {
                 <View style={[styles.legendBox, { backgroundColor: COLORS.rowWildcard }]} />
                 <Text style={styles.legendText}>4~5위 와일드카드</Text>
             </View>
+            {SourceNote}
         </View>
     );
 
@@ -235,7 +236,17 @@ function RankingScreen({ navigation }) {
                 ListHeaderComponent={ListHeader}
                 ListFooterComponent={ListFooter}
                 ListEmptyComponent={
-                    <Text style={styles.empty}>해당 시즌 데이터가 없습니다.</Text>
+                    showLoading ? (
+                        <ActivityIndicator color={COLORS.pill} style={{ marginTop: 30 }} />
+                    ) : error && !isFutures ? (
+                        <TouchableOpacity onPress={reload}>
+                            <Text style={styles.empty}>
+                                순위를 불러오지 못했어요. 눌러서 다시 시도
+                            </Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <Text style={styles.empty}>해당 시즌 데이터가 없습니다.</Text>
+                    )
                 }
                 contentContainerStyle={styles.content}
             />
@@ -352,5 +363,6 @@ const styles = StyleSheet.create({
     legendBox: { width: 12, height: 12, borderRadius: 3, marginRight: 8 },
     legendText: { color: COLORS.subText, fontSize: 12 },
 
+    sourceText: { color: COLORS.subText, fontSize: 11, marginTop: 12 },
     empty: { color: COLORS.subText, textAlign: "center", marginTop: 20 },
 });
