@@ -137,6 +137,7 @@ export function rateGame(game) {
         (teamBox.batters || []).forEach((b, i) => {
             const pa = b.ab + (b.bb || 0);
             players.push({
+                uid: `${side}-batter-${i}`, // 화면 key 용 고유값 (같은 이름이 두 번 나와도 겹치지 않게)
                 name: b.name,
                 pos: b.pos,
                 team,
@@ -152,6 +153,7 @@ export function rateGame(game) {
         });
         (teamBox.pitchers || []).forEach((p, i) => {
             players.push({
+                uid: `${side}-pitcher-${i}`,
                 name: p.name,
                 pos: "투수",
                 team,

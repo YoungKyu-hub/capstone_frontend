@@ -51,7 +51,8 @@ const POSITIONS = {
     우익수: (g) => ({ x: g.cx + 0.37 * g.s, y: g.hy - 0.64 * g.s }),
 };
 
-export const playerKey = (p) => `${p.team}-${p.name}`;
+// 선수 고유 key: rateGame 이 붙인 uid 사용 (같은 팀에 같은 이름이 두 번 나와도 겹치지 않게)
+export const playerKey = (p) => p.uid || `${p.team}-${p.type}-${p.name}-${p.order ?? p.role}`;
 
 /**
  * @param players  한 팀 선수 목록 (rateGame().players 중 해당 팀)

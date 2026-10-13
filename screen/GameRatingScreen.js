@@ -253,7 +253,7 @@ function PlayerSection({ title, players, mom }) {
             <Text style={styles.sectionTitle}>{title}</Text>
             <View style={styles.table}>
                 {players.map((p, i) => {
-                    const isMom = mom && mom.name === p.name && mom.team === p.team;
+                    const isMom = mom && playerKey(mom) === playerKey(p);
                     return (
                         <View
                             key={`${p.name}-${i}`}
