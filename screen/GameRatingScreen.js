@@ -5,6 +5,7 @@ import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
 import { rateGame } from "../utils/playerRating";
 import { GAME_RESULTS } from "../data/gameResultMock";
+import RatingField, { playerKey } from "../components/RatingField";
 
 // ===== 디자인 색상 (다른 화면과 동일) =====
 const COLORS = {
@@ -17,6 +18,8 @@ const COLORS = {
     divider: "#2C2C3E",
     accent: "#E8826B",
     momBg: "#3A2A2C",
+    home: "#E8826B", // 홈팀 원 색 (주황)
+    away: "#4F7FD9", // 원정팀 원 색 (파랑)
 };
 
 // 평점 색: 8.0 이상 주황 / 6.0~7.9 흰색 / 6.0 미만 회색
@@ -37,6 +40,8 @@ export default function GameRatingScreen({ navigation, route }) {
 
     // 처음에는 MOM 팀 탭을 보여줌
     const [tab, setTab] = useState(rated?.mom?.team || home);
+    // 그라운드에서 누른 선수 (처음엔 MOM)
+    const [selected, setSelected] = useState(rated?.mom || null);
 
     const header = (
         <View style={styles.topBar}>
@@ -67,6 +72,14 @@ export default function GameRatingScreen({ navigation, route }) {
     const teamPlayers = players.filter((p) => p.team === tab);
     const batters = teamPlayers.filter((p) => p.type === "batter");
     const pitchers = teamPlayers.filter((p) => p.type === "pitcher");
+    const teamColor = tab === home ? COLORS.home : COLORS.away;
+
+    // 팀 탭 바꾸기: 그 팀 MOM 또는 최고 평점 선수를 선택
+    const changeTab = (team) => {
+        setTab(team);
+        const best = players.find((p) => p.team === team); // players 는 평점 높은 순
+        setSelected(mom && mom.team === team ? mom : best);
+    };
 
     return (
         <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -121,9 +134,14 @@ export default function GameRatingScreen({ navigation, route }) {
                         return (
                             <TouchableOpacity
                                 key={team}
-                                style={[styles.tab, active && styles.tabActive]}
+                                style={[
+                                    styles.tab,
+                                    active && {
+                                        backgroundColor: team === home ? COLORS.home : COLORS.away,
+                                    },
+                                ]}
                                 activeOpacity={0.8}
-                                onPress={() => setTab(team)}
+                                onPress={() => changeTab(team)}
                             >
                                 <TeamLogo team={team} size={18} style={{ marginRight: 6 }} />
                                 <Text style={[styles.tabText, active && styles.tabTextActive]}>
@@ -134,6 +152,44 @@ export default function GameRatingScreen({ navigation, route }) {
                     })}
                 </View>
 
+                {/* 그라운드 위 선수 평점 */}
+                <View style={{ marginTop: 16 }}>
+                    <RatingField
+                        players={teamPlayers}
+                        color={teamColor}
+                        mom={mom}
+                        selectedKey={selected ? playerKey(selected) : null}
+                        onSelect={setSelected}
+                    />
+                </View>
+
+                {/* 누른 선수 기록 */}
+                {selected && selected.team === tab && (
+                    <View style={styles.detail}>
+                        <View style={[styles.detailCircle, { backgroundColor: teamColor }]}>
+                            <Text style={styles.detailRating}>{selected.rating.toFixed(1)}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.detailName}>
+                                {selected.name}
+                                {mom && playerKey(mom) === playerKey(selected) ? "  🏆 MOM" : ""}
+                            </Text>
+                            <Text style={styles.detailSub}>
+                                {selected.team} ·{" "}
+                                {selected.type === "pitcher"
+                                    ? selected.role === "starter"
+                                        ? "선발 투수"
+                                        : "구원 투수"
+                                    : `${selected.order}번 타자 · ${selected.pos}`}
+                            </Text>
+                            <Text style={styles.detailLine}>{selected.line}</Text>
+                        </View>
+                    </View>
+                )}
+                <Text style={styles.hint}>선수를 누르면 기록을 볼 수 있어요</Text>
+
+                {/* 상세 기록 표 */}
+                <Text style={styles.tableTitle}>상세 기록</Text>
                 <PlayerSection title="타자" players={batters} mom={mom} />
                 <PlayerSection title="투수" players={pitchers} mom={mom} />
 
@@ -293,6 +349,30 @@ const styles = StyleSheet.create({
     tabActive: { backgroundColor: COLORS.accent },
     tabText: { color: COLORS.subText, fontSize: 14, fontWeight: "700" },
     tabTextActive: { color: COLORS.text },
+
+    // 누른 선수 기록
+    detail: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: COLORS.card,
+        borderRadius: 12,
+        padding: 14,
+        marginTop: 12,
+    },
+    detailCircle: {
+        width: 48,
+        height: 48,
+        borderRadius: 24,
+        alignItems: "center",
+        justifyContent: "center",
+        marginRight: 12,
+    },
+    detailRating: { color: COLORS.text, fontSize: 17, fontWeight: "800" },
+    detailName: { color: COLORS.text, fontSize: 15, fontWeight: "700" },
+    detailSub: { color: COLORS.subText, fontSize: 12, marginTop: 2 },
+    detailLine: { color: COLORS.text, fontSize: 13, marginTop: 6 },
+    hint: { color: COLORS.dim, fontSize: 11, textAlign: "center", marginTop: 8 },
+    tableTitle: { color: COLORS.text, fontSize: 17, fontWeight: "700", marginTop: 24 },
 
     // 선수 목록
     section: { marginTop: 20 },

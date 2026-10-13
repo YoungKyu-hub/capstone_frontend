@@ -12,12 +12,19 @@ export const GAME_RESULTS = {
         score: { home: 5, away: 3 }, // KIA 5 : 3 LG
         box: {
             home: {
+                // 타순 순서대로 (pos 는 수비 위치 → 그라운드 배치에 사용)
                 batters: [
-                    { name: "김선수", pos: "유격수", ab: 4, h: 3, d: 1, hr: 1, rbi: 3, r: 1, so: 0, gwrbi: true },
                     { name: "이선수", pos: "중견수", ab: 4, h: 1, r: 1, so: 1, sb: 1 },
-                    { name: "박선수", pos: "1루수", ab: 4, h: 0, so: 2 },
                     { name: "정선수", pos: "포수", ab: 3, h: 1, bb: 1, rbi: 1, r: 1 },
+                    { name: "김선수", pos: "유격수", ab: 4, h: 3, d: 1, hr: 1, rbi: 3, r: 1, gwrbi: true },
+                    { name: "나선수", pos: "지명타자", ab: 4, h: 1, rbi: 1, so: 1 },
+                    { name: "박선수", pos: "1루수", ab: 4, h: 0, so: 2 },
+                    { name: "도선수", pos: "3루수", ab: 4, h: 1, r: 1 },
+                    { name: "류선수", pos: "좌익수", ab: 3, h: 1, bb: 1, r: 1 },
+                    { name: "마선수", pos: "우익수", ab: 4, h: 1, so: 1 },
+                    { name: "백선수", pos: "2루수", ab: 3, h: 0, so: 1 },
                 ],
+                // 첫 번째 = 선발, 나머지 = 구원
                 pitchers: [
                     { name: "최선수", outs: 21, er: 2, r: 3, so: 7, bb: 2, hr: 1, decision: "W" },
                     { name: "한선수", outs: 6, er: 0, r: 0, so: 2, bb: 0, hr: 0, decision: "S" },
@@ -29,6 +36,11 @@ export const GAME_RESULTS = {
                     { name: "조선수", pos: "좌익수", ab: 3, h: 1, hr: 1, bb: 1, rbi: 2, r: 1 },
                     { name: "윤선수", pos: "포수", ab: 4, h: 0, so: 1, gidp: 1 },
                     { name: "서선수", pos: "3루수", ab: 4, h: 1, e: 1 },
+                    { name: "고선수", pos: "지명타자", ab: 4, h: 1, r: 1, so: 1 },
+                    { name: "남선수", pos: "1루수", ab: 4, h: 1 },
+                    { name: "변선수", pos: "중견수", ab: 3, h: 0, bb: 1, so: 2 },
+                    { name: "성선수", pos: "우익수", ab: 4, h: 1 },
+                    { name: "안선수", pos: "유격수", ab: 3, h: 0, so: 1 },
                 ],
                 pitchers: [
                     { name: "장선수", outs: 17, er: 4, r: 5, so: 4, bb: 3, hr: 1, decision: "L" },
@@ -44,9 +56,15 @@ export const GAME_RESULTS = {
         box: {
             home: {
                 batters: [
-                    { name: "오선수", pos: "우익수", ab: 4, h: 2, hr: 2, rbi: 2, r: 2 },
                     { name: "신선수", pos: "유격수", ab: 4, h: 1, so: 1 },
                     { name: "권선수", pos: "1루수", ab: 3, h: 0, bb: 1, so: 2 },
+                    { name: "오선수", pos: "우익수", ab: 4, h: 2, hr: 2, rbi: 2, r: 2 },
+                    { name: "탁선수", pos: "지명타자", ab: 4, h: 1, so: 1 },
+                    { name: "표선수", pos: "3루수", ab: 4, h: 0 },
+                    { name: "허선수", pos: "좌익수", ab: 3, h: 1, bb: 1 },
+                    { name: "우선수", pos: "포수", ab: 4, h: 0, so: 2, gidp: 1 },
+                    { name: "진선수", pos: "중견수", ab: 3, h: 1 },
+                    { name: "하선수", pos: "2루수", ab: 3, h: 0, so: 1 },
                 ],
                 pitchers: [
                     { name: "황선수", outs: 18, er: 3, r: 4, so: 5, bb: 3, hr: 1, decision: "L" },
@@ -55,9 +73,15 @@ export const GAME_RESULTS = {
             },
             away: {
                 batters: [
-                    { name: "송선수", pos: "2루수", ab: 4, h: 2, d: 1, rbi: 2, r: 1, gwrbi: true },
                     { name: "유선수", pos: "중견수", ab: 4, h: 1, r: 1, sb: 1 },
+                    { name: "송선수", pos: "2루수", ab: 4, h: 2, d: 1, rbi: 2, r: 1, gwrbi: true },
                     { name: "홍선수", pos: "지명타자", ab: 4, h: 1, rbi: 1, so: 2 },
+                    { name: "길선수", pos: "1루수", ab: 4, h: 1, rbi: 1, r: 1 },
+                    { name: "차선수", pos: "우익수", ab: 4, h: 1, r: 1, so: 1 },
+                    { name: "주선수", pos: "3루수", ab: 3, h: 0, bb: 1 },
+                    { name: "노선수", pos: "좌익수", ab: 4, h: 1 },
+                    { name: "원선수", pos: "포수", ab: 3, h: 0, so: 1 },
+                    { name: "석선수", pos: "유격수", ab: 3, h: 1, e: 1 },
                 ],
                 pitchers: [
                     { name: "전선수", outs: 18, er: 2, r: 2, so: 5, bb: 2, hr: 2, decision: "W" },

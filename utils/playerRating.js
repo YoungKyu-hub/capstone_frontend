@@ -134,25 +134,31 @@ export function rateGame(game) {
         { side: "away", team: away },
     ].forEach(({ side, team }) => {
         const teamBox = box[side];
-        (teamBox.batters || []).forEach((b) => {
+        (teamBox.batters || []).forEach((b, i) => {
             const pa = b.ab + (b.bb || 0);
             players.push({
                 name: b.name,
                 pos: b.pos,
                 team,
+                side,
                 type: "batter",
+                order: i + 1, // 타순
+                stat: b, // 원본 기록 (그라운드 배지 표시용)
                 contribution: batterContribution(b),
                 rating: batterRating(b),
                 line: batterLine(b),
                 eligible: pa >= MIN_PA,
             });
         });
-        (teamBox.pitchers || []).forEach((p) => {
+        (teamBox.pitchers || []).forEach((p, i) => {
             players.push({
                 name: p.name,
                 pos: "투수",
                 team,
+                side,
                 type: "pitcher",
+                role: i === 0 ? "starter" : "relief", // 첫 번째 투수 = 선발
+                stat: p,
                 contribution: pitcherContribution(p),
                 rating: pitcherRating(p),
                 line: pitcherLine(p),
