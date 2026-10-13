@@ -142,7 +142,7 @@ export function rateGame(game) {
                 team,
                 side,
                 type: "batter",
-                order: i + 1, // 타순
+                order: b.order ?? i + 1, // 타순 (백엔드 데이터는 교체 선수도 원래 타순)
                 stat: b, // 원본 기록 (그라운드 배지 표시용)
                 contribution: batterContribution(b),
                 rating: batterRating(b),

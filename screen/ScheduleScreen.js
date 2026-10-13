@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
     View,
     Text,
@@ -6,6 +6,7 @@ import {
     TouchableOpacity,
     ScrollView,
     Modal,
+    ActivityIndicator,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -14,6 +15,7 @@ import TeamLogo from "../components/TeamLogo";
 import LeagueToggle from "../components/LeagueToggle";
 import { useLeague } from "../context/LeagueContext";
 import { FUTURES_SCHEDULE, FUTURES_TEAMS, FUTURES_STADIUMS } from "../data/futuresMock";
+import { useMonthSchedules, fetchLatestScheduleDate } from "../utils/firestoreData";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -29,19 +31,7 @@ const COLORS = {
     saturday: "#7AA8FF",
 };
 
-// 경기 데이터
-const gameData = {
-    "2026-06-03": [
-        { home: "LG", away: "두산", time: "18:30", stadium: "잠실" },
-        { home: "SSG", away: "KIA", time: "18:30", stadium: "문학" },
-    ],
-    "2026-06-07": [
-        { home: "롯데", away: "삼성", time: "17:00", stadium: "사직" },
-    ],
-    "2026-06-12": [
-        { home: "NC", away: "한화", time: "18:30", stadium: "창원" },
-    ],
-};
+// KBO 경기 일정은 Firestore schedules 컬렉션에서 한 달씩 읽어 온다 (퓨처스는 아직 임시 데이터)
 
 const KBO_TEAMS = ["ALL", "LG", "두산", "SSG", "롯데", "삼성", "KIA", "NC", "한화", "키움", "KT"];
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
@@ -89,7 +79,32 @@ export default function ScheduleScreen() {
     // 리그 선택 (기록실·승부예측과 같은 값을 공유)
     const { league, isFutures } = useLeague();
     const teams = isFutures ? ["ALL", ...FUTURES_TEAMS] : KBO_TEAMS;
-    const schedule = isFutures ? FUTURES_SCHEDULE : gameData;
+    const {
+        data: monthGames,
+        loading,
+        error,
+        reload,
+    } = useMonthSchedules(year, month, !isFutures);
+    const schedule = isFutures ? FUTURES_SCHEDULE : monthGames;
+
+    // 처음 열 때: 이번 달에 데이터가 없으면 데이터가 있는 가장 최근 달로 이동
+    const jumped = useRef(false);
+    useEffect(() => {
+        if (isFutures || jumped.current) return;
+        jumped.current = true;
+        fetchLatestScheduleDate()
+            .then((latest) => {
+                if (!latest) return;
+                const [y, m] = latest.split("-").map(Number);
+                const latestKey = y * 12 + (m - 1);
+                const nowKey = today.getFullYear() * 12 + today.getMonth();
+                if (latestKey < nowKey) {
+                    setYear(y);
+                    setMonth(m - 1);
+                }
+            })
+            .catch((e) => console.warn("[firestore] 최근 일정 날짜 읽기 실패", e));
+    }, [isFutures]);
 
     // 리그가 바뀌면 팀 필터와 열린 팝업 초기화
     useEffect(() => {
@@ -163,6 +178,15 @@ export default function ScheduleScreen() {
                         <Text style={styles.monthBtn}>▶</Text>
                     </TouchableOpacity>
                 </View>
+
+                {!isFutures && loading && (
+                    <ActivityIndicator color={COLORS.accent} style={{ marginTop: 10 }} />
+                )}
+                {!isFutures && error && (
+                    <TouchableOpacity onPress={reload}>
+                        <Text style={styles.errorText}>일정을 불러오지 못했어요. 눌러서 다시 시도</Text>
+                    </TouchableOpacity>
+                )}
 
                 {/* 팀 필터 */}
                 <ScrollView
@@ -261,6 +285,7 @@ export default function ScheduleScreen() {
                         <View style={[styles.dot, styles.dotActive, { marginTop: 0, marginRight: 6 }]} />
                         <Text style={styles.legendText}>경기 있는 날 (눌러서 확인)</Text>
                     </View>
+                    {!isFutures && <Text style={styles.sourceText}>자료 출처: KBO</Text>}
                 </View>
             </ScrollView>
 
@@ -296,22 +321,40 @@ export default function ScheduleScreen() {
                                                 <TeamName team={item.home} />
                                                 <Text style={styles.sideLabel}>홈</Text>
                                             </View>
-                                            <Text style={styles.vsText}>VS</Text>
+                                            {item.status === "final" && item.score ? (
+                                                <Text style={styles.scoreText}>
+                                                    {item.score.home} : {item.score.away}
+                                                </Text>
+                                            ) : item.status === "canceled" ? (
+                                                <Text style={styles.canceledText}>
+                                                    {item.note || "취소"}
+                                                </Text>
+                                            ) : (
+                                                <Text style={styles.vsText}>VS</Text>
+                                            )}
                                             <View style={styles.matchSide}>
                                                 <TeamName team={item.away} />
                                                 <Text style={styles.sideLabel}>원정</Text>
                                             </View>
                                         </View>
 
-                                        <TouchableOpacity
-                                            style={styles.detailBtn}
-                                            onPress={() => {
-                                                setModalVisible(false);
-                                                navigation.navigate("GameDetail", { game: item });
-                                            }}
-                                        >
-                                            <Text style={styles.detailText}>상세보기 ›</Text>
-                                        </TouchableOpacity>
+                                        {/* 박스스코어가 있는 경기만 기록·평점 화면으로 */}
+                                        {item.hasBox && (
+                                            <TouchableOpacity
+                                                style={styles.detailBtn}
+                                                onPress={() => {
+                                                    setModalVisible(false);
+                                                    navigation.navigate("GameRating", {
+                                                        source: "firestore",
+                                                        gameId: item.gameId,
+                                                    });
+                                                }}
+                                            >
+                                                <Text style={styles.detailText}>
+                                                    경기 기록·평점 보기 ›
+                                                </Text>
+                                            </TouchableOpacity>
+                                        )}
                                     </View>
                                 ))}
                             </ScrollView>
@@ -483,6 +526,10 @@ const styles = StyleSheet.create({
     },
     matchSide: { alignItems: "center", width: 90 },
     sideLabel: { color: COLORS.subText, fontSize: 11, marginTop: 4 },
+    scoreText: { color: COLORS.text, fontSize: 22, fontWeight: "800" },
+    canceledText: { color: COLORS.sunday, fontSize: 14, fontWeight: "700" },
+    errorText: { color: COLORS.sunday, fontSize: 13, textAlign: "center", marginTop: 10 },
+    sourceText: { color: COLORS.subText, fontSize: 11, marginTop: 8 },
     vsText: { color: COLORS.accent, fontSize: 16, fontWeight: "700" },
     detailBtn: { alignSelf: "flex-end", marginTop: 10 },
     detailText: { color: COLORS.accent, fontSize: 13, fontWeight: "700" },

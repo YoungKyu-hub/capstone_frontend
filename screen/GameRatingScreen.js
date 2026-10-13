@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
 import { rateGame } from "../utils/playerRating";
 import { GAME_RESULTS } from "../data/gameResultMock";
 import RatingField, { playerKey } from "../components/RatingField";
+import { useFirestoreDoc } from "../utils/firestoreData";
 
 // ===== 디자인 색상 (다른 화면과 동일) =====
 const COLORS = {
@@ -29,19 +30,42 @@ const ratingColor = (r) => (r >= 8 ? COLORS.accent : r >= 6 ? COLORS.text : COLO
  * 경기 평점 화면
  * route.params: { date, gameId, home, away }
  */
+/**
+ * route.params
+ *  - Firestore 경기: { source: "firestore", gameId: "2026-06-02_키움_SSG" }  (일정 화면 등)
+ *  - 임시 데이터:    { date, gameId, home, away }                          (승부예측 임시 카드)
+ */
 export default function GameRatingScreen({ navigation, route }) {
-    const { date, gameId, home, away } = route.params;
-    const result = GAME_RESULTS[`${date}-${gameId}`];
+    const params = route.params || {};
+    const isFirestore = params.source === "firestore";
+    const {
+        data: fsGame,
+        loading,
+        error,
+        reload,
+    } = useFirestoreDoc("games", isFirestore ? params.gameId : null);
 
+    const home = isFirestore ? fsGame?.home : params.home;
+    const away = isFirestore ? fsGame?.away : params.away;
+    const date = isFirestore ? fsGame?.date : params.date;
+    const stadium = isFirestore ? fsGame?.venue?.stadium : null;
+
+    const result = useMemo(() => {
+        if (isFirestore) return fsGame ? { score: fsGame.score, box: fsGame.box } : null;
+        return GAME_RESULTS[`${params.date}-${params.gameId}`] || null;
+    }, [isFirestore, fsGame, params.date, params.gameId]);
+
+    // 평점은 앱의 rateGame 으로 다시 계산 (백엔드 rating.py 와 같은 공식, 그라운드 배지용 원본 기록 포함)
     const rated = useMemo(
-        () => (result ? rateGame({ home, away, ...result }) : null),
+        () => (result && home && away ? rateGame({ home, away, ...result }) : null),
         [result, home, away]
     );
 
-    // 처음에는 MOM 팀 탭을 보여줌
-    const [tab, setTab] = useState(rated?.mom?.team || home);
-    // 그라운드에서 누른 선수 (처음엔 MOM)
-    const [selected, setSelected] = useState(rated?.mom || null);
+    // 탭·선택 선수: 사용자가 고르기 전에는 MOM 기준 (데이터가 늦게 와도 맞게 보이도록)
+    const [tabState, setTab] = useState(null);
+    const [selectedState, setSelected] = useState(null);
+    const tab = tabState ?? rated?.mom?.team ?? home;
+    const selected = selectedState ?? rated?.mom ?? null;
 
     const header = (
         <View style={styles.topBar}>
@@ -61,7 +85,17 @@ export default function GameRatingScreen({ navigation, route }) {
             <SafeAreaView style={styles.safe} edges={["top"]}>
                 <View style={styles.content}>
                     {header}
-                    <Text style={styles.empty}>경기 기록이 아직 없습니다.</Text>
+                    {isFirestore && loading ? (
+                        <ActivityIndicator color={COLORS.accent} style={{ marginTop: 60 }} />
+                    ) : isFirestore && error ? (
+                        <TouchableOpacity onPress={reload}>
+                            <Text style={styles.empty}>
+                                경기 기록을 불러오지 못했어요. 눌러서 다시 시도
+                            </Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <Text style={styles.empty}>경기 기록이 아직 없습니다.</Text>
+                    )}
                 </View>
             </SafeAreaView>
         );
@@ -102,7 +136,10 @@ export default function GameRatingScreen({ navigation, route }) {
                     <Text style={styles.scoreTeam}>{away}</Text>
                     <TeamLogo team={away} size={24} />
                 </View>
-                <Text style={styles.scoreSub}>{date} · 경기 종료</Text>
+                <Text style={styles.scoreSub}>
+                    {date}
+                    {stadium ? ` · ${stadium}` : ""} · 경기 종료
+                </Text>
 
                 {/* MOM 카드 */}
                 {mom && (
@@ -201,6 +238,7 @@ export default function GameRatingScreen({ navigation, route }) {
                 </View>
                 <Text style={styles.note}>
                     세부 기록 가중치 기반 평점 (1.0~10.0, 기본 6.0)
+                    {isFirestore ? "\n자료 출처: KBO" : ""}
                 </Text>
             </ScrollView>
         </SafeAreaView>
