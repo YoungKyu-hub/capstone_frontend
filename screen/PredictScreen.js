@@ -105,6 +105,54 @@ function WeatherChip({ stadium, hourly, onPress }) {
     );
 }
 
+// ===== AI 예측 코멘트 (백엔드 ai_comment.py 가 Claude API 로 만들어 schedules 에 저장) =====
+// item.ai = { comment, homeWinProb, awayWinProb, model }
+const aiCommentOf = (item) => item.ai?.comment || item.aiComment || "";
+
+// 예측 전 카드: 코멘트 + 예상 승률
+function AiBox({ item }) {
+    const text = aiCommentOf(item);
+    if (!text) return null;
+    const ai = item.ai;
+    return (
+        <View style={styles.aiBox}>
+            <View style={styles.aiHeader}>
+                <Text style={styles.aiTitle}>AI 참고 멘트</Text>
+                {ai?.homeWinProb != null && (
+                    <Text style={styles.aiProb}>
+                        {item.home} {ai.homeWinProb}% : {ai.awayWinProb}% {item.away}
+                    </Text>
+                )}
+            </View>
+            <Text style={styles.aiComment}>{text}</Text>
+            {!!ai?.model && <Text style={styles.aiCaption}>Claude AI 작성 · 전력분석 기준 참고용</Text>}
+        </View>
+    );
+}
+
+// 경기 종료 카드: 경기 전 AI 예측이 맞았는지
+function AiResultBox({ item, outcome }) {
+    const ai = item.ai;
+    if (!ai?.comment) return null;
+    const fav =
+        ai.homeWinProb > ai.awayWinProb ? item.home : ai.awayWinProb > ai.homeWinProb ? item.away : null;
+    const favProb = Math.max(ai.homeWinProb, ai.awayWinProb);
+    let verdict = null;
+    if (fav && outcome !== "draw") verdict = fav === outcome ? "hit" : "miss";
+    return (
+        <View style={[styles.aiBox, { marginBottom: 12 }]}>
+            <View style={styles.aiHeader}>
+                <Text style={styles.aiTitle}>경기 전 AI 예측</Text>
+                <Text style={[styles.aiProb, verdict === "hit" && { color: COLORS.result }]}>
+                    {fav ? `${fav} 우세 ${favProb}%` : "박빙 50%"}
+                    {verdict === "hit" ? " · ✓ 적중" : verdict === "miss" ? " · ✗ 빗나감" : ""}
+                </Text>
+            </View>
+            <Text style={styles.aiComment}>{ai.comment}</Text>
+        </View>
+    );
+}
+
 // ===== 경기 종료 카드: 점수 + 내 선택/실제 결과 + MOM =====
 function FinishedCard({ item, score, mom, momLoading, picked, options, onOpenRatings }) {
 
@@ -183,6 +231,9 @@ function FinishedCard({ item, score, mom, momLoading, picked, options, onOpenRat
                 <View style={[styles.legendDot, { backgroundColor: COLORS.result, marginLeft: 12 }]} />
                 <Text style={styles.legendText}>경기 결과</Text>
             </View>
+
+            {/* 경기 전 AI 예측 (있으면) */}
+            <AiResultBox item={item} outcome={outcome} />
 
             {/* MOM (경기 기록이 있는 경기만) */}
             {momLoading ? (
@@ -446,13 +497,8 @@ export default function PredictScreen({ navigation }) {
                     })}
                 </View>
 
-                {/* AI 코멘트 (아직 실제 경기엔 없음) */}
-                {!!item.aiComment && (
-                    <View style={styles.aiBox}>
-                        <Text style={styles.aiTitle}>AI 참고 멘트</Text>
-                        <Text style={styles.aiComment}>{item.aiComment}</Text>
-                    </View>
-                )}
+                {/* AI 코멘트 (ai_comment.py 로 만든 경기만) */}
+                <AiBox item={item} />
             </View>
         );
     };
@@ -543,7 +589,7 @@ export default function PredictScreen({ navigation }) {
                     teamStats &&
                     analyzeMatch(selectedMatch.home, selectedMatch.away, teamStats, h2h || {})
                 }
-                aiComment={selectedMatch?.aiComment}
+                aiComment={selectedMatch ? aiCommentOf(selectedMatch) : ""}
             />
 
             {/* 경기장 날씨 바텀시트 */}
@@ -734,7 +780,15 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         padding: 14,
     },
-    aiTitle: { color: COLORS.accent, fontSize: 13, fontWeight: "700", marginBottom: 6 },
+    aiHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 6,
+    },
+    aiTitle: { color: COLORS.accent, fontSize: 13, fontWeight: "700" },
+    aiProb: { color: COLORS.subText, fontSize: 12, fontWeight: "700" },
+    aiCaption: { color: COLORS.subText, fontSize: 10, marginTop: 6, textAlign: "right" },
     aiComment: { color: COLORS.text, fontSize: 13, lineHeight: 20 },
 
     empty: { color: COLORS.subText, textAlign: "center", marginTop: 40 },
