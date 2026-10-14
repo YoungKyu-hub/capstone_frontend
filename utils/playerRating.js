@@ -1,6 +1,7 @@
 // ===== 선수 평점 & MOM 선정 =====
 // 득점 가치(Linear Weights) 방식: 기록 하나하나가 팀 득점을 얼마나
 // 늘리거나 줄였는지(기여점)를 더하고, 6.0 기준 1.0~10.0 평점으로 바꾼다.
+// (높은 쪽·낮은 쪽은 곡선으로 눌러서 10.0 / 1.0 이 너무 자주 나오지 않게 — toRating 참고)
 
 const BASE = 6.0; // 평범한 경기의 기본 점수
 const MIN = 1.0;
@@ -92,8 +93,22 @@ export function pitcherContribution(p) {
     );
 }
 
-export const batterRating = (b) => round1(clamp(BASE + BATTER_SCALE * batterContribution(b)));
-export const pitcherRating = (p) => round1(clamp(BASE + PITCHER_SCALE * pitcherContribution(p)));
+// 평점 곡선: 기여점 × 배율(x) → 평점 (백엔드 rating.py 의 to_rating 과 같은 식)
+//   x 가 작을 땐 거의 6.0 + x 그대로, 클수록 천천히 올라가서 10.0 은 정말 대단한 경기에만
+//   (예전: 6.0 + x 를 10.0 에서 자름 → 홈런 2개 경기도 10.0 이 자주 나옴)
+const UP_ROOM = MAX - BASE; // 4.0
+const DOWN_ROOM = BASE - MIN; // 5.0
+export const toRating = (x) =>
+    round1(
+        clamp(
+            x >= 0
+                ? BASE + UP_ROOM * Math.tanh(x / UP_ROOM)
+                : BASE + DOWN_ROOM * Math.tanh(x / DOWN_ROOM)
+        )
+    );
+
+export const batterRating = (b) => toRating(BATTER_SCALE * batterContribution(b));
+export const pitcherRating = (p) => toRating(PITCHER_SCALE * pitcherContribution(p));
 
 // ===== 기록 한 줄 요약 (MOM 띠에 표시) =====
 export function inningsText(outs) {

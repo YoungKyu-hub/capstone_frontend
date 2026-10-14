@@ -24,7 +24,7 @@ export const winRate = ({ w, l }) => (w + l === 0 ? 0.5 : w / (w + l));
 export const eloExpected = (ratingA, ratingB) =>
     1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
 
-// 경기 결과로 ELO 갱신 (백엔드에서 경기 종료 후 사용할 함수)
+// 경기 결과로 ELO 갱신 (백엔드 importer/elo.py 가 같은 식으로 계산해서 rankings/elo 에 올림)
 // result: 1 = A 승, 0.5 = 무승부, 0 = A 패
 export const updateElo = (ratingA, ratingB, result, k = 20) => {
     const expA = eloExpected(ratingA, ratingB);
@@ -32,8 +32,12 @@ export const updateElo = (ratingA, ratingB, result, k = 20) => {
     return [Math.round(ratingA + change), Math.round(ratingB - change)];
 };
 
-// 상대전적 찾기: "LG-KIA" 또는 "KIA-LG" 어느 쪽으로 저장돼 있어도 찾음
-const getH2H = (h2hTable, teamA, teamB) => {
+// 상대전적 찾기
+//  - Firestore h2h/kbo 의 table 모양: { LG: { KIA: {w, l, d} } }
+//  - 임시 데이터 모양: "LG-KIA" 또는 "KIA-LG" 어느 쪽으로 저장돼 있어도 찾음
+export const getH2H = (h2hTable, teamA, teamB) => {
+    const nested = h2hTable?.[teamA]?.[teamB];
+    if (nested && typeof nested === "object") return nested;
     if (h2hTable[`${teamA}-${teamB}`]) return h2hTable[`${teamA}-${teamB}`];
     const rev = h2hTable[`${teamB}-${teamA}`];
     if (rev) return { w: rev.l, l: rev.w };
@@ -79,7 +83,7 @@ export function analyzeMatch(homeTeam, awayTeam, teamStats, h2hTable) {
     // 3) 두 결과 합치기
     const homeWinProb = BLEND.weighted * weightedProb + BLEND.elo * eloProb;
 
-    const record = ({ w, l }) => `${w}승 ${l}패`;
+    const record = ({ w, l, d }) => `${w}승 ${l}패${d ? ` ${d}무` : ""}`;
     const pct = (v) => v.toFixed(3).replace(/^0/, "");
 
     // 팝업 비교표에 쓸 줄들
@@ -135,4 +139,36 @@ function compare(a, b) {
     if (a > b) return "home";
     if (b > a) return "away";
     return null;
+}
+
+// ===== Firestore 데이터 → analyzeMatch 에 넣을 팀 기록 =====
+// "45-2-24" (홈/방문: 승-무-패) → { w, l, d }
+const parseWDL = (text) => {
+    const [w, d, l] = String(text || "0-0-0").split("-").map(Number);
+    return { w: w || 0, l: l || 0, d: d || 0 };
+};
+// "9승1무0패" → { w, l, d }
+const parseRecent = (text) => {
+    const m = String(text || "").match(/(\d+)승(\d+)무(\d+)패/);
+    return m ? { w: +m[1], d: +m[2], l: +m[3] } : { w: 0, l: 0, d: 0 };
+};
+
+/**
+ * rankings/kbo 의 rows + rankings/elo 의 teams → { 팀: { elo, rank, season, recent10, home, away } }
+ * ELO 가 아직 없으면 1500 으로 둔다.
+ */
+export function buildTeamStats(rankRows = [], eloTeams = {}) {
+    const stats = {};
+    rankRows.forEach((r) => {
+        stats[r.team] = {
+            rank: r.rank,
+            elo: eloTeams[r.team]?.elo ?? 1500,
+            season: { w: r.win, l: r.lose, d: r.draw },
+            recent10: parseRecent(r.last10),
+            home: parseWDL(r.home),
+            away: parseWDL(r.away),
+            streak: r.streak,
+        };
+    });
+    return stats;
 }

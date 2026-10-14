@@ -17,12 +17,13 @@ import WeatherSheet from "../components/WeatherSheet";
 import PowerAnalysisModal from "../components/PowerAnalysisModal";
 import { analyzeMatch } from "../utils/powerAnalysis";
 import { weatherIcon, rainLevel } from "../utils/weather";
-import { STADIUMS, TEAM_STATS, H2H, WEATHER } from "../data/predictMock";
+import { STADIUMS, WEATHER } from "../data/predictMock";
 import MomStrip from "../components/MomStrip";
 import { rateGame } from "../utils/playerRating";
 import {
     useFirestoreDoc,
     useMonthSchedules,
+    useTeamData,
     fetchLatestScheduleDate,
 } from "../utils/firestoreData";
 import LeagueToggle from "../components/LeagueToggle";
@@ -300,6 +301,9 @@ export default function PredictScreen({ navigation }) {
         ? FUTURES_PREDICT_GAMES[futuresDate] || []
         : (activeKboDate && monthGames[activeKboDate]) || [];
 
+    // 전력분석: 순위표 + ELO + 팀간 승패표 (Firestore)
+    const { teamStats, h2h } = useTeamData(!isFutures);
+
     // 날짜 칩: 최근 날짜(오른쪽 끝)가 보이도록
     const dateScroll = useRef(null);
     const [modalVisible, setModalVisible] = useState(false);
@@ -536,7 +540,8 @@ export default function PredictScreen({ navigation }) {
                 onClose={() => setModalVisible(false)}
                 analysis={
                     selectedMatch &&
-                    analyzeMatch(selectedMatch.home, selectedMatch.away, TEAM_STATS, H2H)
+                    teamStats &&
+                    analyzeMatch(selectedMatch.home, selectedMatch.away, teamStats, h2h || {})
                 }
                 aiComment={selectedMatch?.aiComment}
             />
