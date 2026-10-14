@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
     View,
     Text,
@@ -7,6 +7,7 @@ import {
     StyleSheet,
     ScrollView,
     StatusBar,
+    ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,7 +20,11 @@ import { weatherIcon, rainLevel } from "../utils/weather";
 import { STADIUMS, TEAM_STATS, H2H, WEATHER } from "../data/predictMock";
 import MomStrip from "../components/MomStrip";
 import { rateGame } from "../utils/playerRating";
-import { GAME_RESULTS, MY_PREDICTIONS } from "../data/gameResultMock";
+import {
+    useFirestoreDoc,
+    useMonthSchedules,
+    fetchLatestScheduleDate,
+} from "../utils/firestoreData";
 import LeagueToggle from "../components/LeagueToggle";
 import { useLeague } from "../context/LeagueContext";
 import { FUTURES_PREDICT_GAMES, FUTURES_STADIUMS } from "../data/futuresMock";
@@ -37,32 +42,19 @@ const COLORS = {
     result: "#3BA98B", // 경기 결과 표시 색 (내 선택 주황과 구분)
 };
 
-const dateList = ["4/13", "4/14", "4/15", "4/16"];
-const getDayOfWeek = (dateStr) => {
-    const [month, day] = dateStr.split("/");
-    const date = new Date(2026, month - 1, day);
+const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 
-    const week = ["일", "월", "화", "수", "목", "금", "토"];
-    return week[date.getDay()];
+// 퓨처스(임시 데이터) 날짜: "4/13"
+const FUTURES_DATES = Object.keys(FUTURES_PREDICT_GAMES);
+const futuresLabel = (dateStr) => {
+    const [month, day] = dateStr.split("/").map(Number);
+    return `${dateStr} (${WEEK[new Date(2026, month - 1, day).getDay()]})`;
 };
 
-const gameData = {
-    "4/13": [
-        { id: "1", home: "KIA", away: "LG", time: "19:00", aiComment: "KIA의 최근 타선 흐름이 좋습니다." },
-        { id: "2", home: "두산", away: "롯데", time: "18:30", aiComment: "롯데의 원정 경기 승률이 높습니다." },
-    ],
-    "4/14": [
-        { id: "3", home: "SSG", away: "NC", time: "18:30", aiComment: "최근 SSG 불펜의 안정감이 좋습니다." },
-        { id: "2", home: "두산", away: "롯데", time: "18:30", aiComment: "롯데의 원정 경기 승률이 높습니다." },
-    ],
-    "4/15": [
-        { id: "3", home: "SSG", away: "NC", time: "18:30", aiComment: "최근 SSG 불펜의 안정감이 좋습니다." },
-        { id: "4", home: "한화", away: "KT", time: "18:30", aiComment: "한화의 홈 경기 흐름이 좋습니다." },
-    ],
-    "4/16": [
-        { id: "4", home: "한화", away: "KT", time: "18:30", aiComment: "한화의 홈 경기 흐름이 좋습니다." },
-        { id: "5", home: "삼성", away: "키움", time: "17:00", aiComment: "삼성의 최근 득점력이 상승세입니다." },
-    ],
+// KBO(Firestore) 날짜: "2026-06-04" → "6/4 (목)"
+const kboLabel = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return `${m}/${d} (${WEEK[new Date(y, m - 1, d).getDay()]})`;
 };
 
 // 팀 원 + 이름 + 홈/원정 표시
@@ -113,9 +105,7 @@ function WeatherChip({ stadium, hourly, onPress }) {
 }
 
 // ===== 경기 종료 카드: 점수 + 내 선택/실제 결과 + MOM =====
-function FinishedCard({ item, result, picked, options, onOpenRatings }) {
-    const { score } = result;
-    const { mom } = rateGame({ home: item.home, away: item.away, ...result });
+function FinishedCard({ item, score, mom, momLoading, picked, options, onOpenRatings }) {
 
     // 실제 결과: 홈팀 이름 / 원정팀 이름 / "draw"
     const outcome =
@@ -193,33 +183,136 @@ function FinishedCard({ item, result, picked, options, onOpenRatings }) {
                 <Text style={styles.legendText}>경기 결과</Text>
             </View>
 
-            {/* MOM */}
-            <MomStrip mom={mom} />
+            {/* MOM (경기 기록이 있는 경기만) */}
+            {momLoading ? (
+                <ActivityIndicator color={COLORS.accent} style={{ marginVertical: 12 }} />
+            ) : (
+                <MomStrip mom={mom} />
+            )}
 
             {/* 전체 평점 화면으로 */}
-            <TouchableOpacity style={styles.ratingsLink} onPress={onOpenRatings} hitSlop={8}>
-                <Text style={styles.ratingsLinkText}>전체 평점 보기 ›</Text>
-            </TouchableOpacity>
+            {onOpenRatings ? (
+                <TouchableOpacity style={styles.ratingsLink} onPress={onOpenRatings} hitSlop={8}>
+                    <Text style={styles.ratingsLinkText}>전체 평점 보기 ›</Text>
+                </TouchableOpacity>
+            ) : (
+                !momLoading && <Text style={styles.noBoxText}>경기 기록이 아직 없어요</Text>
+            )}
+        </View>
+    );
+}
+
+// Firestore 경기 종료 카드: games/<gameId> 에서 박스스코어를 읽어 MOM 계산
+function FirestoreFinishedCard({ item, picked, options, navigation }) {
+    const { data: game, loading } = useFirestoreDoc("games", item.hasBox ? item.gameId : null);
+    const mom = useMemo(
+        () =>
+            game?.box
+                ? rateGame({ home: item.home, away: item.away, score: game.score, box: game.box }).mom
+                : null,
+        [game, item.home, item.away]
+    );
+
+    return (
+        <FinishedCard
+            item={item}
+            score={item.score}
+            mom={mom}
+            momLoading={loading}
+            picked={picked}
+            options={options}
+            onOpenRatings={
+                item.hasBox
+                    ? () => navigation.navigate("GameRating", { source: "firestore", gameId: item.gameId })
+                    : null
+            }
+        />
+    );
+}
+
+// 취소된 경기 카드
+function CanceledCard({ item }) {
+    return (
+        <View style={styles.card}>
+            <View style={styles.topRow}>
+                <View style={styles.finalChip}>
+                    <Text style={styles.finalChipText}>경기 취소</Text>
+                </View>
+                {!!item.stadium && <Text style={styles.stadiumText}>{item.stadium}</Text>}
+            </View>
+            <View style={[styles.vsRow, { marginBottom: 4 }]}>
+                <TeamBadge team={item.home} side="홈" />
+                <Text style={[styles.vsText, { color: COLORS.subText }]}>VS</Text>
+                <TeamBadge team={item.away} side="원정" />
+            </View>
+            <Text style={styles.canceledNote}>{item.note || "취소"}</Text>
         </View>
     );
 }
 
 export default function PredictScreen({ navigation }) {
-    const [selectedDate, setSelectedDate] = useState("4/13");
     const { isFutures } = useLeague();
-    // 이미 해 둔 예측을 불러와 시작 (나중에 Firestore에서 읽기)
-    const [selectedPredict, setSelectedPredict] = useState(MY_PREDICTIONS);
+    // 내 예측 (키: KBO 는 gameId, 퓨처스는 "날짜-id") — 나중에 Firestore 사용자 기록에 저장
+    const [selectedPredict, setSelectedPredict] = useState({});
+
+    // ===== KBO: Firestore 일정 =====
+    // 처음엔 이번 달, 데이터가 있는 가장 최근 날짜를 찾으면 그 달·그 날짜로 이동
+    const now = new Date();
+    const [kboMonth, setKboMonth] = useState({ year: now.getFullYear(), month: now.getMonth() });
+    const [kboDate, setKboDate] = useState(null);
+    const {
+        data: monthGames,
+        loading: kboLoading,
+        error: kboError,
+        reload: kboReload,
+    } = useMonthSchedules(kboMonth.year, kboMonth.month, !isFutures);
+
+    const latestChecked = useRef(false);
+    useEffect(() => {
+        if (isFutures || latestChecked.current) return;
+        latestChecked.current = true;
+        fetchLatestScheduleDate()
+            .then((latest) => {
+                if (!latest) return;
+                const [y, m] = latest.split("-").map(Number);
+                // 오늘 날짜에 경기 데이터가 없으면 최근 데이터 날짜로
+                const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+                if (latest < todayIso) {
+                    setKboMonth({ year: y, month: m - 1 });
+                    setKboDate(latest);
+                }
+            })
+            .catch((e) => console.warn("[firestore] 최근 일정 날짜 읽기 실패", e));
+    }, [isFutures]);
+
+    const kboDates = useMemo(() => Object.keys(monthGames).sort(), [monthGames]);
+    // 고른 날짜가 이 달에 없으면 이 달의 마지막 경기 날짜
+    const activeKboDate = kboDates.includes(kboDate) ? kboDate : kboDates[kboDates.length - 1];
+
+    // ===== 퓨처스: 임시 데이터 =====
+    const [futuresDate, setFuturesDate] = useState(FUTURES_DATES[0]);
+
+    const selectedDate = isFutures ? futuresDate : activeKboDate;
+    const setSelectedDate = isFutures ? setFuturesDate : setKboDate;
+    const dates = isFutures ? FUTURES_DATES : kboDates;
+    const dateLabel = (d) => (d ? (isFutures ? futuresLabel(d) : kboLabel(d)) : "");
+    const games = isFutures
+        ? FUTURES_PREDICT_GAMES[futuresDate] || []
+        : (activeKboDate && monthGames[activeKboDate]) || [];
+
+    // 날짜 칩: 최근 날짜(오른쪽 끝)가 보이도록
+    const dateScroll = useRef(null);
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedMatch, setSelectedMatch] = useState(null);
     const [weatherVisible, setWeatherVisible] = useState(false);
     const [weatherMatch, setWeatherMatch] = useState(null);
 
     const renderGameCard = ({ item }) => {
-        // 날짜 + 경기 id로 예측 저장 (다른 날짜의 같은 id와 섞이지 않게)
-        const predictKey = `${selectedDate}-${item.id}`;
+        // KBO 는 gameId, 퓨처스는 날짜 + 경기 id 로 예측 저장
+        const predictKey = item.gameId || `${selectedDate}-${item.id}`;
         const picked = selectedPredict[predictKey];
         const stadium = STADIUMS[item.home];
-        const hourly = WEATHER[predictKey];
+        const hourly = WEATHER[predictKey]; // 기상청 연동 전이라 실제 경기엔 아직 없음
 
         const options = [
             { value: item.home, label: `${item.home} 승` },
@@ -227,26 +320,19 @@ export default function PredictScreen({ navigation }) {
             { value: item.away, label: `${item.away} 승` },
         ];
 
-        // 경기 종료 → 결과 카드
-        const result = GAME_RESULTS[predictKey];
-        if (result) {
+        // 경기 종료 → 결과 카드 (점수 + MOM)
+        if (item.status === "final" && item.score) {
             return (
-                <FinishedCard
+                <FirestoreFinishedCard
                     item={item}
-                    result={result}
                     picked={picked}
                     options={options}
-                    onOpenRatings={() =>
-                        navigation.navigate("GameRating", {
-                            date: selectedDate,
-                            gameId: item.id,
-                            home: item.home,
-                            away: item.away,
-                        })
-                    }
+                    navigation={navigation}
                 />
             );
         }
+        // 취소
+        if (item.status === "canceled") return <CanceledCard item={item} />;
 
         // 퓨처스리그 경기 카드: 날씨·전력분석 데이터가 아직 없어서 예측만
         if (isFutures) {
@@ -300,9 +386,9 @@ export default function PredictScreen({ navigation }) {
                 <View style={styles.topRow}>
                     <View style={{ flex: 1 }}>
                         <Text style={styles.timeText}>🕒 {item.time}</Text>
-                        {stadium && (
+                        {(item.stadium || stadium) && (
                             <Text style={styles.stadiumText} numberOfLines={1}>
-                                {stadium.name}
+                                {item.stadium || stadium.name}
                             </Text>
                         )}
                     </View>
@@ -356,11 +442,13 @@ export default function PredictScreen({ navigation }) {
                     })}
                 </View>
 
-                {/* AI 코멘트 */}
-                <View style={styles.aiBox}>
-                    <Text style={styles.aiTitle}>AI 참고 멘트</Text>
-                    <Text style={styles.aiComment}>{item.aiComment}</Text>
-                </View>
+                {/* AI 코멘트 (아직 실제 경기엔 없음) */}
+                {!!item.aiComment && (
+                    <View style={styles.aiBox}>
+                        <Text style={styles.aiTitle}>AI 참고 멘트</Text>
+                        <Text style={styles.aiComment}>{item.aiComment}</Text>
+                    </View>
+                )}
             </View>
         );
     };
@@ -383,11 +471,17 @@ export default function PredictScreen({ navigation }) {
 
             {/* 날짜 선택 */}
             <ScrollView
+                ref={dateScroll}
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.dateContainer}
+                onContentSizeChange={() => {
+                    if (!isFutures && selectedDate === dates[dates.length - 1]) {
+                        dateScroll.current?.scrollToEnd({ animated: false });
+                    }
+                }}
             >
-                {dateList.map((date) => {
+                {dates.map((date) => {
                     const active = selectedDate === date;
                     return (
                         <TouchableOpacity
@@ -396,27 +490,42 @@ export default function PredictScreen({ navigation }) {
                             onPress={() => setSelectedDate(date)}
                         >
                             <Text style={styles.dateText}>
-                                {date} ({getDayOfWeek(date)})
+                                {dateLabel(date)}
                             </Text>
                         </TouchableOpacity>
                     );
                 })}
             </ScrollView>
+
+            {/* 자료 출처 (KBO 실제 데이터) */}
+            {!isFutures && kboDates.length > 0 && (
+                <Text style={styles.sourceNote}>자료 출처: KBO</Text>
+            )}
         </View>
     );
+
+    // 목록이 비었을 때: 불러오는 중 / 오류 / 경기 없음
+    let emptyView = <Text style={styles.empty}>예정된 경기가 없습니다.</Text>;
+    if (!isFutures && kboLoading) {
+        emptyView = <ActivityIndicator color={COLORS.accent} style={{ marginTop: 40 }} />;
+    } else if (!isFutures && kboError) {
+        emptyView = (
+            <TouchableOpacity onPress={kboReload} style={{ marginTop: 40 }}>
+                <Text style={styles.empty}>경기 정보를 불러오지 못했어요. 눌러서 다시 시도</Text>
+            </TouchableOpacity>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.safe} edges={["top"]}>
             <StatusBar barStyle="light-content" />
 
             <FlatList
-                data={(isFutures ? FUTURES_PREDICT_GAMES : gameData)[selectedDate] || []}
-                keyExtractor={(item) => `${selectedDate}-${item.id}`}
+                data={games}
+                keyExtractor={(item) => item.gameId || `${selectedDate}-${item.id}`}
                 renderItem={renderGameCard}
                 ListHeaderComponent={ListHeader}
-                ListEmptyComponent={
-                    <Text style={styles.empty}>예정된 경기가 없습니다.</Text>
-                }
+                ListEmptyComponent={emptyView}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.content}
             />
@@ -437,9 +546,11 @@ export default function PredictScreen({ navigation }) {
                 visible={weatherVisible}
                 onClose={() => setWeatherVisible(false)}
                 match={weatherMatch}
-                dateLabel={`${selectedDate} (${getDayOfWeek(selectedDate)})`}
+                dateLabel={dateLabel(selectedDate)}
                 stadium={weatherMatch && STADIUMS[weatherMatch.home]}
-                hourly={weatherMatch && WEATHER[`${selectedDate}-${weatherMatch.id}`]}
+                hourly={
+                    weatherMatch && WEATHER[weatherMatch.gameId || `${selectedDate}-${weatherMatch.id}`]
+                }
             />
         </SafeAreaView>
     );
@@ -622,5 +733,8 @@ const styles = StyleSheet.create({
     aiComment: { color: COLORS.text, fontSize: 13, lineHeight: 20 },
 
     empty: { color: COLORS.subText, textAlign: "center", marginTop: 40 },
+    sourceNote: { color: COLORS.subText, fontSize: 11, textAlign: "right", marginTop: 4 },
+    noBoxText: { color: COLORS.subText, fontSize: 12, textAlign: "right", marginTop: 10 },
+    canceledNote: { color: COLORS.subText, fontSize: 13, textAlign: "center", marginTop: 8 },
 
 });
