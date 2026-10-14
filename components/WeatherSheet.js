@@ -40,18 +40,23 @@ const COLORS = {
  * @param dateLabel 예: "4/13 (월)"
  * @param stadium  { name, cfBearing }
  * @param hourly   시간대별 날씨 배열 (예보: pop 있음 / 관측: pop 없음)
- * @param station  관측소 이름 (관측 자료일 때 출처 표시용, 예: "서울")
+ * @param info     Firestore weather 문서 { station, beforePcp, beforeUntil } (관측 자료일 때)
+ * @param canceled 취소된 경기인지 (요약 문구·경기 전 강수량 표시)
  */
-export default function WeatherSheet({ visible, onClose, match, dateLabel, stadium, hourly, station }) {
+export default function WeatherSheet({ visible, onClose, match, dateLabel, stadium, hourly, info, canceled }) {
     if (!match || !stadium || !hourly || hourly.length === 0) return null;
 
     const observed = isObserved(hourly);
     const level = RAIN_LEVEL[rainLevel(hourly)];
     const total = totalPcp(hourly);
+    const station = info?.station;
+    const beforePcp = info?.beforePcp || 0;
+    // 경기 전 강수량 줄: 취소 경기이거나 경기 전에 비가 왔을 때만
+    const showBefore = observed && info && (canceled || beforePcp > 0);
     // 바람은 경기 시작 시각 기준
     const start = hourly[0];
     const wind = windToField(start.vec, start.wsd, stadium.cfBearing);
-    const summary = weatherSummary(hourly, wind);
+    const summary = weatherSummary(hourly, wind, { canceled, beforePcp, station });
 
     return (
         <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -90,6 +95,22 @@ export default function WeatherSheet({ visible, onClose, match, dateLabel, stadi
                             <Text style={styles.rainBadgeText}>{observed ? `${total}mm` : level.label}</Text>
                         </View>
                     </View>
+                    {showBefore && (
+                        <View style={[styles.rainBox, { marginTop: 8 }]}>
+                            <Ionicons name="time-outline" size={18} color={COLORS.text} />
+                            <Text style={styles.rainText}>
+                                경기 전 강수량{info.beforeUntil ? ` (0~${info.beforeUntil})` : ""}
+                            </Text>
+                            <View
+                                style={[
+                                    styles.rainBadge,
+                                    { backgroundColor: beforePcp > 0 ? RAIN_LEVEL.high.color : RAIN_LEVEL.low.color },
+                                ]}
+                            >
+                                <Text style={styles.rainBadgeText}>{beforePcp}mm</Text>
+                            </View>
+                        </View>
+                    )}
 
                     {/* ③ 시간대별 날씨 */}
                     <Text style={styles.sectionTitle}>시간대별 날씨</Text>

@@ -614,7 +614,8 @@ export default function PredictScreen({ navigation }) {
                     weatherMatch &&
                     hourlyOf(weatherMatch, weatherMatch.gameId || `${selectedDate}-${weatherMatch.id}`)
                 }
-                station={weatherMatch?.weather?.station}
+                info={weatherMatch?.weather}
+                canceled={weatherMatch?.status === "canceled"}
             />
         </SafeAreaView>
     );

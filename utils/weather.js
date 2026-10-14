@@ -76,11 +76,19 @@ export function windDirName(vec) {
 }
 
 // 바텀시트 맨 아래 한 줄 요약
-export function weatherSummary(hourly, wind) {
+// extra: { canceled, beforePcp(0시~경기 전 강수량), station } — 관측 자료일 때만 사용
+export function weatherSummary(hourly, wind, extra = {}) {
     const level = rainLevel(hourly);
     if (isObserved(hourly)) {
         // 지난 경기: 실제로 어땠는지 (과거형)
         const total = totalPcp(hourly);
+        const before = extra.beforePcp || 0;
+        if (extra.canceled) {
+            if (before > 0 && total > 0) return `경기 전 ${before}mm, 경기 시간에도 ${total}mm 비가 내렸어요`;
+            if (before > 0) return `경기 시간엔 그쳤지만, 경기 전에 비가 ${before}mm 내렸어요`;
+            if (total > 0) return `경기 시간에 비가 ${total}mm 내렸어요`;
+            return `${extra.station || ""} 관측소에는 비 기록이 없어요. 구장 주변 비나 그라운드 사정으로 취소됐을 수 있어요`;
+        }
         if (level === "high") return `경기 시간에 비가 ${total}mm 내렸어요`;
         if (level === "mid") return `경기 중 약한 비(${total}mm)가 있었어요`;
         if (wind.effect === "hitter") return "외야로 부는 바람이 있던 경기였어요";
