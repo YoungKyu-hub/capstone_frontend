@@ -16,6 +16,8 @@ import {
     windToField,
     windDirName,
     weatherSummary,
+    isObserved,
+    totalPcp,
 } from "../utils/weather";
 
 const COLORS = {
@@ -37,12 +39,15 @@ const COLORS = {
  * @param match    { home, away, time }
  * @param dateLabel 예: "4/13 (월)"
  * @param stadium  { name, cfBearing }
- * @param hourly   시간대별 날씨 배열 (data/predictMock.js 의 WEATHER 형식)
+ * @param hourly   시간대별 날씨 배열 (예보: pop 있음 / 관측: pop 없음)
+ * @param station  관측소 이름 (관측 자료일 때 출처 표시용, 예: "서울")
  */
-export default function WeatherSheet({ visible, onClose, match, dateLabel, stadium, hourly }) {
+export default function WeatherSheet({ visible, onClose, match, dateLabel, stadium, hourly, station }) {
     if (!match || !stadium || !hourly || hourly.length === 0) return null;
 
+    const observed = isObserved(hourly);
     const level = RAIN_LEVEL[rainLevel(hourly)];
+    const total = totalPcp(hourly);
     // 바람은 경기 시작 시각 기준
     const start = hourly[0];
     const wind = windToField(start.vec, start.wsd, stadium.cfBearing);
@@ -66,18 +71,23 @@ export default function WeatherSheet({ visible, onClose, match, dateLabel, stadi
                             <Text style={styles.subText}>
                                 {dateLabel} {match.time} · {match.away} vs {match.home}
                             </Text>
+                            {observed && (
+                                <Text style={styles.sourceText}>
+                                    실제 관측 기록 · 기상청 {station ? `${station} 관측소` : "ASOS"}
+                                </Text>
+                            )}
                         </View>
                         <TouchableOpacity onPress={onClose} hitSlop={10}>
                             <Ionicons name="close" size={24} color={COLORS.subText} />
                         </TouchableOpacity>
                     </View>
 
-                    {/* ② 우천 취소 가능성 */}
+                    {/* ② 우천 취소 가능성 (예보) / 경기 중 강수량 (관측) */}
                     <View style={styles.rainBox}>
                         <Ionicons name="umbrella" size={18} color={COLORS.text} />
-                        <Text style={styles.rainText}>우천 취소 가능성</Text>
+                        <Text style={styles.rainText}>{observed ? "경기 시간 강수량" : "우천 취소 가능성"}</Text>
                         <View style={[styles.rainBadge, { backgroundColor: level.color }]}>
-                            <Text style={styles.rainBadgeText}>{level.label}</Text>
+                            <Text style={styles.rainBadgeText}>{observed ? `${total}mm` : level.label}</Text>
                         </View>
                     </View>
 
@@ -102,7 +112,8 @@ export default function WeatherSheet({ visible, onClose, match, dateLabel, stadi
                                 />
                                 <Text style={styles.hourTemp}>{hour.tmp}°</Text>
                                 <Text style={styles.hourPop}>
-                                    <Ionicons name="water" size={10} color="#7FB2FF" /> {hour.pop}%
+                                    <Ionicons name="water" size={10} color="#7FB2FF" />{" "}
+                                    {observed ? `${hour.pcp || 0}mm` : `${hour.pop}%`}
                                 </Text>
                             </View>
                         ))}
@@ -120,8 +131,10 @@ export default function WeatherSheet({ visible, onClose, match, dateLabel, stadi
                             </View>
                         </View>
                         <View style={styles.windInfo}>
-                            <Text style={styles.windDir}>{windDirName(start.vec)}</Text>
-                            <Text style={styles.windSpeed}>{start.wsd} m/s</Text>
+                            <Text style={styles.windDir}>
+                                {start.vec != null ? windDirName(start.vec) : "풍향 기록 없음"}
+                            </Text>
+                            <Text style={styles.windSpeed}>{start.wsd != null ? `${start.wsd} m/s` : "-"}</Text>
                             <Text style={styles.windLabel}>{wind.label}</Text>
                         </View>
                     </View>
@@ -169,6 +182,7 @@ const styles = StyleSheet.create({
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
     stadiumName: { color: COLORS.text, fontSize: 20, fontWeight: "700" },
     subText: { color: COLORS.subText, fontSize: 13, marginTop: 4 },
+    sourceText: { color: COLORS.accent, fontSize: 11, marginTop: 4 },
 
     // ② 우천 취소
     rainBox: {

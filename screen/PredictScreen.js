@@ -16,8 +16,9 @@ import TeamLogo from "../components/TeamLogo";
 import WeatherSheet from "../components/WeatherSheet";
 import PowerAnalysisModal from "../components/PowerAnalysisModal";
 import { analyzeMatch } from "../utils/powerAnalysis";
-import { weatherIcon, rainLevel } from "../utils/weather";
-import { STADIUMS, WEATHER } from "../data/predictMock";
+import { weatherIcon, rainLevel, isObserved, totalPcp } from "../utils/weather";
+import { stadiumOf } from "../utils/stadiums";
+import { WEATHER } from "../data/predictMock";
 import MomStrip from "../components/MomStrip";
 import { rateGame } from "../utils/playerRating";
 import {
@@ -71,7 +72,10 @@ function TeamBadge({ team, side }) {
     );
 }
 
-// 카드 안 날씨 칩: 아이콘 + 기온 + 강수확률 (누르면 날씨 바텀시트)
+// 경기 시간대 날씨: Firestore(weather.py 관측) → 없으면 임시 예보 데이터
+const hourlyOf = (item, key) => item?.weather?.hourly || WEATHER[key] || null;
+
+// 카드 안 날씨 칩: 아이콘 + 기온 + 강수확률(예보) 또는 강수량(관측) (누르면 날씨 바텀시트)
 function WeatherChip({ stadium, hourly, onPress }) {
     // 돔구장은 날씨 영향 없음 → 누를 수 없게
     if (stadium?.dome) {
@@ -85,7 +89,8 @@ function WeatherChip({ stadium, hourly, onPress }) {
     if (!hourly || hourly.length === 0) return null;
 
     const start = hourly[0];
-    const rainy = rainLevel(hourly) === "high";
+    const observed = isObserved(hourly);
+    const rainy = observed ? totalPcp(hourly) > 0 : rainLevel(hourly) === "high";
 
     return (
         <TouchableOpacity
@@ -99,7 +104,9 @@ function WeatherChip({ stadium, hourly, onPress }) {
                 color={rainy ? COLORS.accent : "#FFD36B"}
             />
             <Text style={styles.weatherChipText}>
-                {start.tmp}° · {Math.max(...hourly.map((h) => h.pop))}%
+                {observed
+                    ? `${start.tmp}°${rainy ? ` · ${totalPcp(hourly)}mm` : ""}`
+                    : `${start.tmp}° · ${Math.max(...hourly.map((h) => h.pop))}%`}
             </Text>
         </TouchableOpacity>
     );
@@ -154,7 +161,7 @@ function AiResultBox({ item, outcome }) {
 }
 
 // ===== 경기 종료 카드: 점수 + 내 선택/실제 결과 + MOM =====
-function FinishedCard({ item, score, mom, momLoading, picked, options, onOpenRatings }) {
+function FinishedCard({ item, score, mom, momLoading, picked, options, onOpenRatings, onWeather }) {
 
     // 실제 결과: 홈팀 이름 / 원정팀 이름 / "draw"
     const outcome =
@@ -175,6 +182,8 @@ function FinishedCard({ item, score, mom, momLoading, picked, options, onOpenRat
                 <View style={styles.finalChip}>
                     <Text style={styles.finalChipText}>경기 종료</Text>
                 </View>
+                <View style={{ flex: 1 }} />
+                <WeatherChip stadium={stadiumOf(item)} hourly={item.weather?.hourly} onPress={onWeather} />
                 <View style={[styles.statusBadge, status.style]}>
                     <Text style={styles.statusText}>{status.text}</Text>
                 </View>
@@ -255,7 +264,7 @@ function FinishedCard({ item, score, mom, momLoading, picked, options, onOpenRat
 }
 
 // Firestore 경기 종료 카드: games/<gameId> 에서 박스스코어를 읽어 MOM 계산
-function FirestoreFinishedCard({ item, picked, options, navigation }) {
+function FirestoreFinishedCard({ item, picked, options, navigation, onWeather }) {
     const { data: game, loading } = useFirestoreDoc("games", item.hasBox ? item.gameId : null);
     const mom = useMemo(
         () =>
@@ -273,6 +282,7 @@ function FirestoreFinishedCard({ item, picked, options, navigation }) {
             momLoading={loading}
             picked={picked}
             options={options}
+            onWeather={onWeather}
             onOpenRatings={
                 item.hasBox
                     ? () => navigation.navigate("GameRating", { source: "firestore", gameId: item.gameId })
@@ -283,13 +293,16 @@ function FirestoreFinishedCard({ item, picked, options, navigation }) {
 }
 
 // 취소된 경기 카드
-function CanceledCard({ item }) {
+function CanceledCard({ item, onWeather }) {
     return (
         <View style={styles.card}>
             <View style={styles.topRow}>
                 <View style={styles.finalChip}>
                     <Text style={styles.finalChipText}>경기 취소</Text>
                 </View>
+                <View style={{ flex: 1 }} />
+                {/* 우천취소 경기는 그 시간 실제 비를 볼 수 있게 */}
+                <WeatherChip stadium={stadiumOf(item)} hourly={item.weather?.hourly} onPress={onWeather} />
                 {!!item.stadium && <Text style={styles.stadiumText}>{item.stadium}</Text>}
             </View>
             <View style={[styles.vsRow, { marginBottom: 4 }]}>
@@ -366,8 +379,12 @@ export default function PredictScreen({ navigation }) {
         // KBO 는 gameId, 퓨처스는 날짜 + 경기 id 로 예측 저장
         const predictKey = item.gameId || `${selectedDate}-${item.id}`;
         const picked = selectedPredict[predictKey];
-        const stadium = STADIUMS[item.home];
-        const hourly = WEATHER[predictKey]; // 기상청 연동 전이라 실제 경기엔 아직 없음
+        const stadium = stadiumOf(item);
+        const hourly = hourlyOf(item, predictKey);
+        const openWeather = () => {
+            setWeatherMatch(item);
+            setWeatherVisible(true);
+        };
 
         const options = [
             { value: item.home, label: `${item.home} 승` },
@@ -383,11 +400,12 @@ export default function PredictScreen({ navigation }) {
                     picked={picked}
                     options={options}
                     navigation={navigation}
+                    onWeather={openWeather}
                 />
             );
         }
         // 취소
-        if (item.status === "canceled") return <CanceledCard item={item} />;
+        if (item.status === "canceled") return <CanceledCard item={item} onWeather={openWeather} />;
 
         // 퓨처스리그 경기 카드: 날씨·전력분석 데이터가 아직 없어서 예측만
         if (isFutures) {
@@ -448,14 +466,7 @@ export default function PredictScreen({ navigation }) {
                         )}
                     </View>
 
-                    <WeatherChip
-                        stadium={stadium}
-                        hourly={hourly}
-                        onPress={() => {
-                            setWeatherMatch(item);
-                            setWeatherVisible(true);
-                        }}
-                    />
+                    <WeatherChip stadium={stadium} hourly={hourly} onPress={openWeather} />
 
                     <TouchableOpacity
                         style={styles.analysisButton}
@@ -598,10 +609,12 @@ export default function PredictScreen({ navigation }) {
                 onClose={() => setWeatherVisible(false)}
                 match={weatherMatch}
                 dateLabel={dateLabel(selectedDate)}
-                stadium={weatherMatch && STADIUMS[weatherMatch.home]}
+                stadium={stadiumOf(weatherMatch)}
                 hourly={
-                    weatherMatch && WEATHER[weatherMatch.gameId || `${selectedDate}-${weatherMatch.id}`]
+                    weatherMatch &&
+                    hourlyOf(weatherMatch, weatherMatch.gameId || `${selectedDate}-${weatherMatch.id}`)
                 }
+                station={weatherMatch?.weather?.station}
             />
         </SafeAreaView>
     );
