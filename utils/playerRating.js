@@ -143,6 +143,8 @@ export function rateGame(game) {
                 team,
                 side,
                 type: "batter",
+                // 선발 여부: 백엔드 데이터는 b.starter 가 있음 (임시 데이터는 모두 선발로 봄)
+                starter: b.starter ?? true,
                 order: b.order ?? i + 1, // 타순 (백엔드 데이터는 교체 선수도 원래 타순)
                 stat: b, // 원본 기록 (그라운드 배지 표시용)
                 contribution: batterContribution(b),

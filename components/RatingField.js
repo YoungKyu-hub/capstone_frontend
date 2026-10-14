@@ -52,6 +52,23 @@ const POSITIONS = {
 };
 
 // 선수 고유 key: rateGame 이 붙인 uid 사용 (같은 팀에 같은 이름이 두 번 나와도 겹치지 않게)
+// 처음 수비 위치: '1루수→3루수' → '1루수' (그라운드에 놓을 수 있는 위치만)
+function fieldPos(p) {
+    const first = (p.pos || "").split("→")[0];
+    return POSITIONS[first] && first !== "투수" ? first : null;
+}
+
+// 아래 줄 정렬 순서와 이름표
+function benchRank(p) {
+    if (p.type === "pitcher") return 2;
+    return p.starter ? 0 : 1; // 선발 지명타자 먼저, 그다음 교체 선수
+}
+function benchLabel(p) {
+    if (p.type === "pitcher") return "↑ 구원";
+    if (p.starter) return p.pos; // 지명타자
+    return `↑ ${p.pos}`; // 교체: 대타 / 대주자→중견수 / 대수비→1루수
+}
+
 export const playerKey = (p) => p.uid || `${p.team}-${p.type}-${p.name}-${p.order ?? p.role}`;
 
 /**
@@ -70,13 +87,15 @@ export default function RatingField({ players, color, mom, selectedKey, onSelect
     g.d = 0.32 * g.s; // 베이스 간 거리
 
     // 그라운드 위 선수: 수비 위치가 있는 타자 + 선발 투수
+    // 그라운드: 선발 출전 선수만 (선발 투수 + 선발 야수의 "처음" 수비 위치)
+    //   예) 박지훈 '1루수→3루수' 는 1루수 자리에, 경기 중 들어온 강승호(대수비→1루수)는 아래 교체 줄에
     const onField = players.filter(
-        (p) =>
-            (p.type === "batter" && POSITIONS[p.pos] && p.pos !== "투수") ||
-            p.role === "starter"
+        (p) => p.role === "starter" || (p.type === "batter" && p.starter && fieldPos(p))
     );
-    // 벤치 줄: 지명타자·대타 등 + 구원 투수
-    const bench = players.filter((p) => !onField.includes(p));
+    // 아래 줄: 선발 지명타자 → 교체 야수(타순 순) → 구원 투수
+    const bench = players
+        .filter((p) => !onField.includes(p))
+        .sort((a, b) => benchRank(a) - benchRank(b) || (a.order ?? 0) - (b.order ?? 0));
 
     const isMom = (p) => mom && playerKey(mom) === playerKey(p);
 
@@ -153,7 +172,7 @@ export default function RatingField({ players, color, mom, selectedKey, onSelect
 
                         {/* 선수 */}
                         {onField.map((p) => {
-                            const pos = POSITIONS[p.role === "starter" ? "투수" : p.pos](g);
+                            const pos = POSITIONS[p.role === "starter" ? "투수" : fieldPos(p)](g);
                             return (
                                 <View
                                     key={playerKey(p)}
@@ -184,7 +203,7 @@ export default function RatingField({ players, color, mom, selectedKey, onSelect
                         {bench.map((p) => (
                             <View key={playerKey(p)} style={styles.benchItem}>
                                 <Text style={styles.benchLabel}>
-                                    {p.type === "pitcher" ? "↑ 구원" : p.pos}
+                                    {benchLabel(p)}
                                 </Text>
                                 <PlayerBubble
                                     player={p}
