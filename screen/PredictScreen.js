@@ -332,6 +332,8 @@ export default function PredictScreen({ navigation }) {
         reload: kboReload,
     } = useMonthSchedules(kboMonth.year, kboMonth.month, !isFutures);
 
+    // 데이터가 있는 가장 최근 경기 날짜 ("최근 경기로 돌아가기" 버튼에서도 씀)
+    const [latestDate, setLatestDate] = useState(null);
     const latestChecked = useRef(false);
     useEffect(() => {
         if (isFutures || latestChecked.current) return;
@@ -339,6 +341,7 @@ export default function PredictScreen({ navigation }) {
         fetchLatestScheduleDate()
             .then((latest) => {
                 if (!latest) return;
+                setLatestDate(latest);
                 const [y, m] = latest.split("-").map(Number);
                 // 오늘 날짜에 경기 데이터가 없으면 최근 데이터 날짜로
                 const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -350,9 +353,44 @@ export default function PredictScreen({ navigation }) {
             .catch((e) => console.warn("[firestore] 최근 일정 날짜 읽기 실패", e));
     }, [isFutures]);
 
-    const kboDates = useMemo(() => Object.keys(monthGames).sort(), [monthGames]);
-    // 고른 날짜가 이 달에 없으면 이 달의 마지막 경기 날짜
-    const activeKboDate = kboDates.includes(kboDate) ? kboDate : kboDates[kboDates.length - 1];
+    // 월 이동: › 다음 달은 그 달 첫 경기, ‹ 이전 달은 그 달 마지막 경기를 고름
+    const [pickEdge, setPickEdge] = useState("last"); // "first" | "last"
+    const moveMonth = (delta) => {
+        setKboMonth(({ year, month }) => {
+            const d = new Date(year, month + delta, 1);
+            return { year: d.getFullYear(), month: d.getMonth() };
+        });
+        setKboDate(null);
+        setPickEdge(delta > 0 ? "first" : "last");
+    };
+
+    // 데이터 없는 달에서 "최근 경기로 돌아가기"
+    const goLatest = async () => {
+        try {
+            const latest = latestDate || (await fetchLatestScheduleDate());
+            if (!latest) return;
+            setLatestDate(latest);
+            const [y, m] = latest.split("-").map(Number);
+            setKboMonth({ year: y, month: m - 1 });
+            setKboDate(latest);
+            setPickEdge("last");
+        } catch (e) {
+            console.warn("[firestore] 최근 일정 날짜 읽기 실패", e);
+        }
+    };
+
+    // 이 달 날짜만 (달을 바꾸는 중엔 이전 달 데이터가 잠깐 남아 있어서 걸러 냄)
+    const kboYm = `${kboMonth.year}-${String(kboMonth.month + 1).padStart(2, "0")}`;
+    const kboDates = useMemo(
+        () => Object.keys(monthGames).filter((d) => d.startsWith(kboYm)).sort(),
+        [monthGames, kboYm]
+    );
+    // 고른 날짜가 이 달에 없으면 이 달의 첫/마지막 경기 날짜
+    const activeKboDate = kboDates.includes(kboDate)
+        ? kboDate
+        : pickEdge === "first"
+        ? kboDates[0]
+        : kboDates[kboDates.length - 1];
 
     // ===== 퓨처스: 임시 데이터 =====
     const [futuresDate, setFuturesDate] = useState(FUTURES_DATES[0]);
@@ -368,8 +406,18 @@ export default function PredictScreen({ navigation }) {
     // 전력분석: 순위표 + ELO + 팀간 승패표 (Firestore)
     const { teamStats, h2h } = useTeamData(!isFutures);
 
-    // 날짜 칩: 최근 날짜(오른쪽 끝)가 보이도록
+    // 날짜 칩: 첫 날짜면 왼쪽 끝, 마지막 날짜면 오른쪽 끝이 보이도록
     const dateScroll = useRef(null);
+    const scrollChipsToEdge = (animated) => {
+        if (isFutures || dates.length === 0) return;
+        if (selectedDate === dates[0]) dateScroll.current?.scrollTo({ x: 0, animated });
+        else if (selectedDate === dates[dates.length - 1]) dateScroll.current?.scrollToEnd({ animated });
+    };
+    // 달이 바뀌어 칩이 새로 그려졌을 때 (칩 개수가 같으면 onContentSizeChange 가 안 불려서 따로)
+    useEffect(() => {
+        const t = setTimeout(() => scrollChipsToEdge(false), 0);
+        return () => clearTimeout(t);
+    }, [kboYm, kboDates.length, isFutures]);
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedMatch, setSelectedMatch] = useState(null);
     const [weatherVisible, setWeatherVisible] = useState(false);
@@ -530,17 +578,28 @@ export default function PredictScreen({ navigation }) {
             {/* 리그 선택: KBO 리그 / 퓨처스리그 */}
             <LeagueToggle style={{ marginTop: 20 }} />
 
+            {/* 월 이동 (KBO, 일정 화면과 같은 모양) */}
+            {!isFutures && (
+                <View style={styles.monthBar}>
+                    <TouchableOpacity onPress={() => moveMonth(-1)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Text style={styles.monthBtn}>◀</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.monthText}>
+                        {kboMonth.year}년 {kboMonth.month + 1}월
+                    </Text>
+                    <TouchableOpacity onPress={() => moveMonth(1)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Text style={styles.monthBtn}>▶</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
             {/* 날짜 선택 */}
             <ScrollView
                 ref={dateScroll}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.dateContainer}
-                onContentSizeChange={() => {
-                    if (!isFutures && selectedDate === dates[dates.length - 1]) {
-                        dateScroll.current?.scrollToEnd({ animated: false });
-                    }
-                }}
+                contentContainerStyle={[styles.dateContainer, !isFutures && { paddingTop: 12 }]}
+                onContentSizeChange={() => scrollChipsToEdge(false)}
             >
                 {dates.map((date) => {
                     const active = selectedDate === date;
@@ -574,6 +633,16 @@ export default function PredictScreen({ navigation }) {
             <TouchableOpacity onPress={kboReload} style={{ marginTop: 40 }}>
                 <Text style={styles.empty}>경기 정보를 불러오지 못했어요. 눌러서 다시 시도</Text>
             </TouchableOpacity>
+        );
+    } else if (!isFutures && kboDates.length === 0) {
+        // 데이터가 없는 달
+        emptyView = (
+            <View style={{ alignItems: "center" }}>
+                <Text style={styles.empty}>이 달 경기 데이터가 아직 없어요</Text>
+                <TouchableOpacity style={styles.latestButton} onPress={goLatest} activeOpacity={0.8}>
+                    <Text style={styles.latestButtonText}>최근 경기로 돌아가기</Text>
+                </TouchableOpacity>
+            </View>
         );
     }
 
@@ -652,6 +721,28 @@ const styles = StyleSheet.create({
         textAlign: "center",
         marginTop: 16,
     },
+
+    // 월 이동 (ScheduleScreen 과 같음)
+    monthBar: {
+        flexDirection: "row",
+        justifyContent: "center",
+        alignItems: "center",
+        marginTop: 16,
+    },
+    monthBtn: { color: COLORS.subText, fontSize: 14, marginHorizontal: 16 },
+    monthText: { color: COLORS.subText, fontSize: 14 },
+
+    // 데이터 없는 달 → 최근 경기로
+    latestButton: {
+        height: 36,
+        paddingHorizontal: 16,
+        borderRadius: 18,
+        borderWidth: 1,
+        borderColor: COLORS.accent,
+        justifyContent: "center",
+        marginTop: 14,
+    },
+    latestButtonText: { color: COLORS.accent, fontSize: 13, fontWeight: "700" },
 
     // 날짜 선택
     dateContainer: { paddingTop: 24, paddingBottom: 8 },
