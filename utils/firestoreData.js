@@ -18,6 +18,17 @@ import { buildTeamStats } from "./powerAnalysis";
 
 const cache = new Map(); // "rankings/kbo" → 데이터 (없는 문서는 null)
 
+// ===== 리그별 Firestore 위치 =====
+// 퓨처스는 1군과 같은 날 같은 두 팀 경기가 있어서 일정·경기 기록 컬렉션을 따로 둠 (upload_firestore.py --league futures)
+const LEAGUE_DOCS = {
+    kbo: { schedules: "schedules", games: "games", rank: "kbo", elo: "elo", h2h: "kbo" },
+    futures: { schedules: "futures_schedules", games: "futures_games", rank: "futures", elo: "futuresElo", h2h: "futures" },
+};
+/** "kbo" | "futures" → { schedules, games, rank, elo, h2h } */
+export const leagueDocs = (league = "kbo") => LEAGUE_DOCS[league] || LEAGUE_DOCS.kbo;
+/** useLeague() 의 isFutures → "kbo" | "futures" */
+export const leagueKey = (isFutures) => (isFutures ? "futures" : "kbo");
+
 export async function fetchDoc(collection, id, { force = false } = {}) {
     const key = `${collection}/${id}`;
     if (!force && cache.has(key)) return cache.get(key);
@@ -79,14 +90,15 @@ export function formatUpdated(iso) {
 
 // ===== 일정: 한 달치 schedules 문서 읽기 =====
 
-const monthCache = new Map(); // "2026-06" → { "2026-06-02": [경기…], … }
+const monthCache = new Map(); // "kbo:2026-06" → { "2026-06-02": [경기…], … }
 
-export async function fetchMonthSchedules(year, month) {
+export async function fetchMonthSchedules(year, month, league = "kbo") {
     const ym = `${year}-${String(month + 1).padStart(2, "0")}`;
-    if (monthCache.has(ym)) return monthCache.get(ym);
+    const key = `${league}:${ym}`;
+    if (monthCache.has(key)) return monthCache.get(key);
     // 문서 ID 와 date 필드가 "YYYY-MM-DD" 라서 문자열 범위로 한 달을 고를 수 있음
     const q = query(
-        collection(db, "schedules"),
+        collection(db, leagueDocs(league).schedules),
         where("date", ">=", `${ym}-01`),
         where("date", "<=", `${ym}-31`)
     );
@@ -96,15 +108,15 @@ export async function fetchMonthSchedules(year, month) {
         const data = d.data();
         byDate[data.date] = data.games || [];
     });
-    monthCache.set(ym, byDate);
+    monthCache.set(key, byDate);
     return byDate;
 }
 
 /**
- * 한 달 일정 훅. enabled 가 false 면(퓨처스 등) 읽지 않음.
- * 사용: const { data, loading, error, reload } = useMonthSchedules(2026, 5);  // month 는 0~11
+ * 한 달 일정 훅. enabled 가 false 면 읽지 않음. league: "kbo" | "futures"
+ * 사용: const { data, loading, error, reload } = useMonthSchedules(2026, 5, true, "futures");  // month 는 0~11
  */
-export function useMonthSchedules(year, month, enabled = true) {
+export function useMonthSchedules(year, month, enabled = true, league = "kbo") {
     const [state, setState] = useState({ data: {}, loading: enabled, error: null });
 
     const load = useCallback(
@@ -114,17 +126,17 @@ export function useMonthSchedules(year, month, enabled = true) {
                 return;
             }
             const ym = `${year}-${String(month + 1).padStart(2, "0")}`;
-            if (force) monthCache.delete(ym);
+            if (force) monthCache.delete(`${league}:${ym}`);
             setState((s) => ({ ...s, loading: true, error: null }));
             try {
-                const data = await fetchMonthSchedules(year, month);
+                const data = await fetchMonthSchedules(year, month, league);
                 setState({ data, loading: false, error: null });
             } catch (e) {
-                console.warn(`[firestore] schedules ${ym} 읽기 실패`, e);
+                console.warn(`[firestore] ${leagueDocs(league).schedules} ${ym} 읽기 실패`, e);
                 setState({ data: {}, loading: false, error: e });
             }
         },
-        [year, month, enabled]
+        [year, month, enabled, league]
     );
 
     useEffect(() => {
@@ -135,8 +147,8 @@ export function useMonthSchedules(year, month, enabled = true) {
 }
 
 /** 데이터가 있는 가장 최근 경기 날짜 ("2026-06-30") — 일정 화면을 처음 열 때 그 달로 이동 */
-export async function fetchLatestScheduleDate() {
-    const q = query(collection(db, "schedules"), orderBy("date", "desc"), limit(1));
+export async function fetchLatestScheduleDate(league = "kbo") {
+    const q = query(collection(db, leagueDocs(league).schedules), orderBy("date", "desc"), limit(1));
     const snap = await getDocs(q);
     let latest = null;
     snap.forEach((d) => {
@@ -146,12 +158,13 @@ export async function fetchLatestScheduleDate() {
 }
 
 // ===== 한 시즌 일정 전체 (상대전적 화면의 최근 맞대결용) =====
-const seasonCache = new Map(); // 2026 → { "2026-06-02": [경기…], … }
+const seasonCache = new Map(); // "kbo:2026" → { "2026-06-02": [경기…], … }
 
-export async function fetchSeasonSchedules(year) {
-    if (seasonCache.has(year)) return seasonCache.get(year);
+export async function fetchSeasonSchedules(year, league = "kbo") {
+    const key = `${league}:${year}`;
+    if (seasonCache.has(key)) return seasonCache.get(key);
     const q = query(
-        collection(db, "schedules"),
+        collection(db, leagueDocs(league).schedules),
         where("date", ">=", `${year}-01-01`),
         where("date", "<=", `${year}-12-31`)
     );
@@ -161,7 +174,7 @@ export async function fetchSeasonSchedules(year) {
         const data = d.data();
         byDate[data.date] = data.games || [];
     });
-    seasonCache.set(year, byDate);
+    seasonCache.set(key, byDate);
     return byDate;
 }
 
@@ -171,13 +184,14 @@ export function findMatchups(byDate, teamA, teamB) {
     Object.keys(byDate).forEach((date) => {
         byDate[date].forEach((g) => {
             const pair = (g.home === teamA && g.away === teamB) || (g.home === teamB && g.away === teamA);
-            if (pair && g.status === "final" && g.score) list.push({ date, ...g });
+            // 퓨처스 교류전·올스타(exchange)는 맞대결이 아님
+            if (pair && g.status === "final" && g.score && !g.exchange) list.push({ date, ...g });
         });
     });
     return list.sort((a, b) => (b.date + (b.time || "")).localeCompare(a.date + (a.time || "")));
 }
 
-export function useSeasonSchedules(year, enabled = true) {
+export function useSeasonSchedules(year, enabled = true, league = "kbo") {
     const [state, setState] = useState({ data: {}, loading: enabled, error: null });
     useEffect(() => {
         if (!enabled) {
@@ -186,7 +200,7 @@ export function useSeasonSchedules(year, enabled = true) {
         }
         let alive = true;
         setState((s) => ({ ...s, loading: true, error: null }));
-        fetchSeasonSchedules(year)
+        fetchSeasonSchedules(year, league)
             .then((data) => alive && setState({ data, loading: false, error: null }))
             .catch((e) => {
                 console.warn(`[firestore] schedules ${year} 읽기 실패`, e);
@@ -195,20 +209,22 @@ export function useSeasonSchedules(year, enabled = true) {
         return () => {
             alive = false;
         };
-    }, [year, enabled]);
+    }, [year, enabled, league]);
     return state;
 }
 
 /**
  * 팀 분석용 데이터 한 번에: 순위표(rankings/kbo) + ELO(rankings/elo) + 팀간 승패표(h2h/kbo)
- * 사용: const { teamStats, h2h, loading, error, reload, updatedAt } = useTeamData(!isFutures);
+ *   퓨처스: rankings/futures + rankings/futuresElo + h2h/futures
+ * 사용: const { teamStats, h2h, loading, error, reload, updatedAt } = useTeamData(true, "futures");
  *   teamStats: { LG: { rank, elo, season, recent10, home, away } }   (analyzeMatch 에 그대로 넣음)
  *   h2h:       { LG: { KIA: { w, l, d } } }
  */
-export function useTeamData(enabled = true) {
-    const rank = useFirestoreDoc("rankings", enabled ? "kbo" : null);
-    const elo = useFirestoreDoc("rankings", enabled ? "elo" : null);
-    const h2h = useFirestoreDoc("h2h", enabled ? "kbo" : null);
+export function useTeamData(enabled = true, league = "kbo") {
+    const ids = leagueDocs(league);
+    const rank = useFirestoreDoc("rankings", enabled ? ids.rank : null);
+    const elo = useFirestoreDoc("rankings", enabled ? ids.elo : null);
+    const h2h = useFirestoreDoc("h2h", enabled ? ids.h2h : null);
 
     const teamStats = useMemo(
         () => (rank.data ? buildTeamStats(rank.data.rows, elo.data?.teams) : null),

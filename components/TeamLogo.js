@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Image, StyleSheet } from "react-native";
+import { View, Image, Text, StyleSheet } from "react-native";
 
 // 팀 이름 → 로고 이미지
 const LOGOS = {
@@ -15,6 +15,9 @@ const LOGOS = {
     NC: require("../assets/teams/nc.png"),
     키움: require("../assets/teams/kiwoom.png"),
     고양: require("../assets/teams/kiwoom.png"), // 키움 퓨처스팀(고양 히어로즈)
+    // 지난 시즌 순위표의 옛 팀 이름 (같은 구단)
+    넥센: require("../assets/teams/kiwoom.png"), // ~2018 넥센 히어로즈 → 키움
+    SK: require("../assets/teams/ssg.png"), // ~2020 SK 와이번스 → SSG
 };
 
 // 로고가 없는 팀일 때 대신 보여줄 팀 색
@@ -33,6 +36,13 @@ const FALLBACK_COLORS = {
     울산: "#1B3B6F",
 };
 
+// 로고가 없는 특별 팀: 회색 원 + 글자 (퓨처스 교류전 상대·올스타전)
+const TEXT_BADGES = {
+    소프트뱅크: "SB",
+    북부: "북부",
+    남부: "남부",
+};
+
 /**
  * 팀 로고
  * @param team 팀 이름 (예: "LG", "두산")
@@ -41,6 +51,27 @@ const FALLBACK_COLORS = {
  */
 export default function TeamLogo({ team, size = 20, style }) {
     const source = LOGOS[team];
+
+    const badgeText = TEXT_BADGES[team];
+    if (!source && badgeText) {
+        return (
+            <View
+                style={[
+                    styles.textBadge,
+                    { width: size, height: size, borderRadius: size / 2 },
+                    style,
+                ]}
+            >
+                <Text
+                    style={[styles.textBadgeText, { fontSize: size * (badgeText.length > 2 ? 0.26 : 0.34) }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                >
+                    {badgeText}
+                </Text>
+            </View>
+        );
+    }
 
     if (!source) {
         return (
@@ -70,4 +101,10 @@ export default function TeamLogo({ team, size = 20, style }) {
 
 const styles = StyleSheet.create({
     logo: {},
+    textBadge: {
+        backgroundColor: "#5A5A6E",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    textBadgeText: { color: "#FFFFFF", fontWeight: "700" },
 });

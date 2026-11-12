@@ -13,7 +13,13 @@ import TeamLogo from "../components/TeamLogo";
 import LeagueToggle from "../components/LeagueToggle";
 import { useLeague } from "../context/LeagueContext";
 import { FUTURES_TEAMS } from "../data/futuresMock";
-import { useTeamData, useSeasonSchedules, findMatchups, formatUpdated } from "../utils/firestoreData";
+import {
+    useTeamData,
+    useSeasonSchedules,
+    findMatchups,
+    formatUpdated,
+    leagueKey,
+} from "../utils/firestoreData";
 import { analyzeMatch, getH2H, winRate } from "../utils/powerAnalysis";
 
 const SEASON = 2026;
@@ -32,12 +38,6 @@ const COLORS = {
 
 const KBO_TEAMS = ["LG", "두산", "SSG", "롯데", "삼성", "KIA", "NC", "한화", "키움", "KT"];
 
-// 퓨처스는 아직 실제 데이터가 없어서 고정값
-const FUTURES_ROWS = [
-    { label: "상대전적", left: "12승", right: "8승" },
-    { label: "최근 10경기", left: "6승4패", right: "4승6패" },
-    { label: "승률", left: "0.610", right: "0.390" },
-];
 
 const record = ({ w, l, d }) => `${w}승 ${l}패${d ? ` ${d}무` : ""}`;
 const pct = (v) => v.toFixed(3).replace(/^0/, "");
@@ -47,7 +47,7 @@ const better = (a, b, lowerIsBetter = false) => {
     return (a > b) !== lowerIsBetter ? "left" : "right";
 };
 
-/** KBO 실제 데이터로 비교 표 만들기 */
+/** 실제 데이터로 비교 표 만들기 (KBO·퓨처스 같은 모양, 퓨처스 순위는 "북부 1위" 처럼 리그별) */
 function buildRows(team1, team2, teamStats, h2h) {
     const a = teamStats[team1];
     const b = teamStats[team2];
@@ -56,7 +56,13 @@ function buildRows(team1, team2, teamStats, h2h) {
     const vsRev = { w: vs.l, l: vs.w, d: vs.d || 0 };
     return [
         { label: "상대전적", left: record(vs), right: record(vsRev), better: better(vs.w, vs.l) },
-        { label: "순위", left: `${a.rank}위`, right: `${b.rank}위`, better: better(a.rank, b.rank, true) },
+        {
+            label: "순위",
+            left: `${a.league ? `${a.league} ` : ""}${a.rank}위`,
+            right: `${b.league ? `${b.league} ` : ""}${b.rank}위`,
+            // 퓨처스에서 리그가 다르면 순위끼리 비교하지 않음
+            better: a.league !== b.league ? null : better(a.rank, b.rank, true),
+        },
         {
             label: "시즌 승률",
             left: pct(winRate(a.season)),
@@ -138,27 +144,28 @@ export default function HeadToHeadScreen({ navigation }) {
         setShow(false);
     }, [league]);
 
-    // KBO: Firestore 순위표 + ELO + 팀간 승패표, 최근 맞대결은 시즌 일정에서
-    const { teamStats, h2h, elo, updatedAt, loading, error, reload } = useTeamData(!isFutures);
-    const season = useSeasonSchedules(SEASON, !isFutures && show);
+    // Firestore 순위표 + ELO + 팀간 승패표 (리그별), 최근 맞대결은 시즌 일정에서
+    const lg = leagueKey(isFutures);
+    const { teamStats, h2h, elo, updatedAt, loading, error, reload } = useTeamData(true, lg);
+    const season = useSeasonSchedules(SEASON, show, lg);
 
-    const rows = useMemo(() => {
-        if (isFutures) return FUTURES_ROWS;
-        return teamStats ? buildRows(team1, team2, teamStats, h2h) : [];
-    }, [isFutures, team1, team2, teamStats, h2h]);
+    const rows = useMemo(
+        () => (teamStats ? buildRows(team1, team2, teamStats, h2h) : []),
+        [team1, team2, teamStats, h2h]
+    );
 
     // 두 팀만 비교했을 때 예상 승률 (team1 을 홈으로 보지 않도록 홈 어드밴티지 없이 양쪽 평균)
     const winProb = useMemo(() => {
-        if (isFutures || !teamStats) return null;
+        if (!teamStats) return null;
         const asHome = analyzeMatch(team1, team2, teamStats, h2h || {});
         const asAway = analyzeMatch(team2, team1, teamStats, h2h || {});
         if (!asHome || !asAway) return null;
         return Math.round((asHome.homeWinProb + asAway.awayWinProb) / 2);
-    }, [isFutures, team1, team2, teamStats, h2h]);
+    }, [team1, team2, teamStats, h2h]);
 
     const matchups = useMemo(
-        () => (isFutures ? [] : findMatchups(season.data, team1, team2).slice(0, 3)),
-        [isFutures, season.data, team1, team2]
+        () => findMatchups(season.data, team1, team2).slice(0, 3),
+        [season.data, team1, team2]
     );
 
     const sameTeam = team1 === team2;
@@ -226,8 +233,8 @@ export default function HeadToHeadScreen({ navigation }) {
                             </View>
                         )}
 
-                        {/* 최근 맞대결 (KBO) */}
-                        {!isFutures && (
+                        {/* 최근 맞대결 */}
+                        {(
                             <View style={styles.recentBox}>
                                 <Text style={styles.recentTitle}>최근 맞대결</Text>
                                 {season.loading ? (
@@ -264,6 +271,7 @@ export default function HeadToHeadScreen({ navigation }) {
                                                     navigation.navigate("GameRating", {
                                                         source: "firestore",
                                                         gameId: g.gameId,
+                                                        league: lg,
                                                     })
                                                 }
                                             >
@@ -286,10 +294,10 @@ export default function HeadToHeadScreen({ navigation }) {
                             <Text style={[styles.headCell, styles.side]}>{team2}</Text>
                         </View>
 
-                        {!isFutures && loading && (
+                        {loading && (
                             <ActivityIndicator color={COLORS.accent} style={{ marginTop: 12 }} />
                         )}
-                        {!isFutures && !loading && error && (
+                        {!loading && error && (
                             <TouchableOpacity onPress={reload}>
                                 <Text style={styles.note}>
                                     기록을 불러오지 못했어요. 눌러서 다시 시도
@@ -314,7 +322,7 @@ export default function HeadToHeadScreen({ navigation }) {
                         ))}
 
                         {/* 자료 출처 */}
-                        {!isFutures && rows.length > 0 && (
+                        {rows.length > 0 && (
                             <Text style={styles.note}>
                                 자료 출처: KBO{updatedAt ? ` · ${formatUpdated(updatedAt)} 업데이트` : ""}
                                 {elo?.to ? `\nELO: ${elo.from.slice(5).replace("-", "/")} ~ ${elo.to.slice(5).replace("-", "/")} ${elo.games}경기로 계산` : ""}

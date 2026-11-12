@@ -1,10 +1,11 @@
-import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from "react-native";
+import React, { useMemo, useState } from "react";
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
 import LeagueToggle from "../components/LeagueToggle";
 import { useLeague } from "../context/LeagueContext";
+import { useFirestoreDoc, formatUpdated } from "../utils/firestoreData";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -18,32 +19,6 @@ const COLORS = {
     rowDirect: "#1E2A4A",
 };
 
-// 내부 데이터 (영어 key 유지)
-const data = {
-    batter: {
-        avg: [
-            { name: "김도영", team: "KIA", value: ".347" },
-            { name: "홍창기", team: "LG", value: ".338" },
-        ],
-        hr: [
-            { name: "김도영", team: "KIA", value: "35" },
-            { name: "노시환", team: "한화", value: "31" },
-        ],
-    },
-    pitcher: {
-        era: [
-            { name: "네일", team: "KIA", value: "2.11" },
-            { name: "원태인", team: "삼성", value: "2.43" },
-        ],
-    },
-    team: {
-        winrate: [
-            { name: "KIA", value: ".650" },
-            { name: "LG", value: ".620" },
-        ],
-    },
-};
-
 // 한글 → 데이터 키 매핑
 const mainMap = {
     타자: "batter",
@@ -51,22 +26,117 @@ const mainMap = {
     팀: "team",
 };
 
-const subMap = {
-    batter: { 타율: "avg", 홈런: "hr" },
-    pitcher: { 평균자책: "era" },
-    team: { 승률: "winrate" },
+
+// ===== Firestore 기록실 표 (백엔드가 KBO 기록실 팀별 표를 합쳐 올린 것) =====
+//   KBO 리그:  rankings/kboBatters · kboPitchers · kbo(순위, 팀 경기 수)
+//   퓨처스리그: rankings/futuresBatters · futuresPitchers · futures
+// 규정(비율 기록 — 타율·OPS·ERA·WHIP 에만 적용): 1군 타석 = 팀 경기 × 3.1, 이닝 × 1.0 / 퓨처스 × 2.7, × 0.8
+const LEAGUE_RECORD = {
+    kbo: { batters: "kboBatters", pitchers: "kboPitchers", rank: "kbo", paPerGame: 3.1, ipPerGame: 1.0 },
+    futures: { batters: "futuresBatters", pitchers: "futuresPitchers", rank: "futures", paPerGame: 2.7, ipPerGame: 0.8 },
 };
+const TOP_N = 30;
+
+const rate3 = (v) => (v == null || isNaN(v) ? "-" : v.toFixed(3).replace(/^0/, ""));
+const fixed2 = (v) => (v == null || isNaN(v) ? "-" : v.toFixed(2));
+const int = (v) => String(v ?? 0);
+
+// 서브 탭 → { 값 계산, 표시, 정렬(낮을수록 좋으면 asc), 규정 필요 여부 }
+const RECORD_STATS = {
+    batter: {
+        타율: { get: (r) => r.avg, fmt: rate3, qualified: true },
+        홈런: { get: (r) => r.hr, fmt: int },
+        타점: { get: (r) => r.rbi, fmt: int },
+        안타: { get: (r) => r.h, fmt: int },
+        도루: { get: (r) => r.sb, fmt: int },
+        OPS: { get: (r) => r.ops ?? (r.obp ?? 0) + (r.slg ?? 0), fmt: rate3, qualified: true },
+    },
+    pitcher: {
+        평균자책: { get: (r) => r.era, fmt: fixed2, asc: true, qualified: true },
+        승리: { get: (r) => r.w, fmt: int },
+        세이브: { get: (r) => r.sv, fmt: int },
+        홀드: { get: (r) => r.hld, fmt: int },
+        탈삼진: { get: (r) => r.so, fmt: int },
+        WHIP: {
+            get: (r) => (r.outs ? ((r.h ?? 0) + (r.bb ?? 0)) / (r.outs / 3) : null),
+            fmt: fixed2,
+            asc: true,
+            qualified: true,
+        },
+    },
+    team: {
+        승률: { get: (r) => r.win / Math.max(1, r.win + r.lose), fmt: rate3 },
+        승리: { get: (r) => r.win, fmt: int },
+    },
+};
+
+const playerName = (r) => (r.sameName ? `${r.name}(${r.sameName})` : r.name);
+
+function buildList(mainKey, subTab, docs, rule) {
+    const stat = RECORD_STATS[mainKey]?.[subTab];
+    if (!stat) return [];
+    const teamGames = {};
+    (docs.rank?.rows || []).forEach((t) => (teamGames[t.team] = t.game));
+
+    let rows;
+    if (mainKey === "team") {
+        rows = (docs.rank?.rows || []).map((t) => ({ ...t, name: t.team }));
+    } else {
+        rows = (mainKey === "batter" ? docs.batters?.rows : docs.pitchers?.rows) || [];
+        if (stat.qualified) {
+            rows = rows.filter((r) => {
+                const g = teamGames[r.team] || 0;
+                return mainKey === "batter"
+                    ? (r.pa ?? 0) >= g * rule.paPerGame
+                    : (r.outs ?? 0) >= g * rule.ipPerGame * 3;
+            });
+        }
+    }
+    return rows
+        .map((r) => ({ r, v: stat.get(r) }))
+        .filter(({ v }) => v != null && !isNaN(v))
+        .sort((a, b) => (stat.asc ? a.v - b.v : b.v - a.v))
+        .slice(0, TOP_N)
+        .map(({ r, v }) => ({
+            name: mainKey === "team" ? r.team : playerName(r),
+            team: r.team,
+            value: stat.fmt(v),
+        }));
+}
 
 export default function SeasonRecordScreen({ navigation }) {
     const [mainTab, setMainTab] = useState("타자");
     const [subTab, setSubTab] = useState("타율");
 
     const mainKey = mainMap[mainTab];
-    const subKey = subMap[mainKey]?.[subTab];
     const { isFutures } = useLeague();
-    // 퓨처스리그 선수 기록은 크롤링(백엔드) 연결 후 채울 예정
-    const current = isFutures ? [] : data[mainKey]?.[subKey] || [];
+    const rule = LEAGUE_RECORD[isFutures ? "futures" : "kbo"];
+
+    const batters = useFirestoreDoc("rankings", rule.batters);
+    const pitchers = useFirestoreDoc("rankings", rule.pitchers);
+    const rank = useFirestoreDoc("rankings", rule.rank);
+    const loading = batters.loading || pitchers.loading || rank.loading;
+    const loadError = batters.error || pitchers.error || rank.error;
+
+    const subTabs = Object.keys(RECORD_STATS[mainKey]);
+    const activeSub = subTabs.includes(subTab) ? subTab : subTabs[0];
+
+    const current = useMemo(
+        () =>
+            buildList(
+                mainKey,
+                activeSub,
+                { batters: batters.data, pitchers: pitchers.data, rank: rank.data },
+                rule
+            ),
+        [mainKey, activeSub, batters.data, pitchers.data, rank.data, rule]
+    );
     const isTeam = mainKey === "team";
+    const qualifiedNote = RECORD_STATS[mainKey]?.[activeSub]?.qualified
+        ? mainKey === "batter"
+            ? `규정타석(팀 경기 × ${rule.paPerGame}) 이상`
+            : `규정이닝(팀 경기 × ${rule.ipPerGame}) 이상`
+        : null;
 
     return (
         <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -103,7 +173,7 @@ export default function SeasonRecordScreen({ navigation }) {
                                 onPress={() => {
                                     setMainTab(t);
                                     // 첫 서브탭 자동 설정
-                                    setSubTab(Object.keys(subMap[mainMap[t]])[0]);
+                                    setSubTab(Object.keys(RECORD_STATS[mainMap[t]])[0]);
                                 }}
                             >
                                 <Text style={styles.pillText}>{t}</Text>
@@ -114,8 +184,8 @@ export default function SeasonRecordScreen({ navigation }) {
 
                 {/* 서브 탭: 타율 / 홈런 ... */}
                 <View style={styles.subRow}>
-                    {Object.keys(subMap[mainKey]).map((t) => {
-                        const active = subTab === t;
+                    {subTabs.map((t) => {
+                        const active = activeSub === t;
                         return (
                             <TouchableOpacity
                                 key={t}
@@ -144,7 +214,7 @@ export default function SeasonRecordScreen({ navigation }) {
                     {!isTeam && (
                         <Text style={[styles.headCell, styles.colTeam]}>팀</Text>
                     )}
-                    <Text style={[styles.headCell, styles.colValue]}>{subTab}</Text>
+                    <Text style={[styles.headCell, styles.colValue]}>{activeSub}</Text>
                 </View>
 
                 {/* 데이터 */}
@@ -175,11 +245,20 @@ export default function SeasonRecordScreen({ navigation }) {
                     );
                 })}
 
-                {current.length === 0 && (
+                {loading && current.length === 0 && (
+                    <ActivityIndicator color={COLORS.accent} style={{ marginTop: 20 }} />
+                )}
+                {!loading && current.length === 0 && (
                     <Text style={styles.empty}>
-                        {isFutures
-                            ? "퓨처스리그 기록은 데이터 연결 후 보여 드려요."
-                            : "기록 데이터가 없습니다."}
+                        {loadError ? "기록을 불러오지 못했어요." : "기록 데이터가 없습니다."}
+                    </Text>
+                )}
+
+                {/* 기준·출처 */}
+                {current.length > 0 && (
+                    <Text style={styles.empty}>
+                        {qualifiedNote ? `${qualifiedNote} · ` : ""}자료 출처: KBO
+                        {batters.data?.updatedAt ? ` · ${formatUpdated(batters.data.updatedAt)} 업데이트` : ""}
                     </Text>
                 )}
             </ScrollView>

@@ -14,8 +14,8 @@ import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
 import LeagueToggle from "../components/LeagueToggle";
 import { useLeague } from "../context/LeagueContext";
-import { FUTURES_SCHEDULE, FUTURES_TEAMS, FUTURES_STADIUMS } from "../data/futuresMock";
-import { useMonthSchedules, fetchLatestScheduleDate } from "../utils/firestoreData";
+import { FUTURES_TEAMS } from "../data/futuresMock";
+import { useMonthSchedules, fetchLatestScheduleDate, leagueKey } from "../utils/firestoreData";
 
 // ===== 디자인 색상 (RankingScreen과 동일) =====
 const COLORS = {
@@ -31,7 +31,7 @@ const COLORS = {
     saturday: "#7AA8FF",
 };
 
-// KBO 경기 일정은 Firestore schedules 컬렉션에서 한 달씩 읽어 온다 (퓨처스는 아직 임시 데이터)
+// 경기 일정은 Firestore 에서 한 달씩 읽어 온다 (KBO: schedules, 퓨처스: futures_schedules)
 
 const KBO_TEAMS = ["ALL", "LG", "두산", "SSG", "롯데", "삼성", "KIA", "NC", "한화", "키움", "KT"];
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
@@ -79,20 +79,21 @@ export default function ScheduleScreen() {
     // 리그 선택 (기록실·승부예측과 같은 값을 공유)
     const { league, isFutures } = useLeague();
     const teams = isFutures ? ["ALL", ...FUTURES_TEAMS] : KBO_TEAMS;
+    const lg = leagueKey(isFutures);
     const {
         data: monthGames,
         loading,
         error,
         reload,
-    } = useMonthSchedules(year, month, !isFutures);
-    const schedule = isFutures ? FUTURES_SCHEDULE : monthGames;
+    } = useMonthSchedules(year, month, true, lg);
+    const schedule = monthGames;
 
-    // 처음 열 때: 이번 달에 데이터가 없으면 데이터가 있는 가장 최근 달로 이동
-    const jumped = useRef(false);
+    // 처음 열 때(리그별 한 번): 이번 달에 데이터가 없으면 데이터가 있는 가장 최근 달로 이동
+    const jumped = useRef({});
     useEffect(() => {
-        if (isFutures || jumped.current) return;
-        jumped.current = true;
-        fetchLatestScheduleDate()
+        if (jumped.current[lg]) return;
+        jumped.current[lg] = true;
+        fetchLatestScheduleDate(lg)
             .then((latest) => {
                 if (!latest) return;
                 const [y, m] = latest.split("-").map(Number);
@@ -104,7 +105,7 @@ export default function ScheduleScreen() {
                 }
             })
             .catch((e) => console.warn("[firestore] 최근 일정 날짜 읽기 실패", e));
-    }, [isFutures]);
+    }, [lg]);
 
     // 리그가 바뀌면 팀 필터와 열린 팝업 초기화
     useEffect(() => {
@@ -138,10 +139,7 @@ export default function ScheduleScreen() {
 
     // 날짜별 경기 필터
     const getGamesByDate = (key) => {
-        const games = (schedule[key] || []).map((g) => ({
-            ...g,
-            stadium: g.stadium || (isFutures ? FUTURES_STADIUMS[g.home] : ""),
-        }));
+        const games = (schedule[key] || []).map((g) => ({ ...g, stadium: g.stadium || "" }));
         if (filterTeam === "ALL") return games;
         return games.filter((g) => g.home === filterTeam || g.away === filterTeam);
     };
@@ -179,10 +177,10 @@ export default function ScheduleScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {!isFutures && loading && (
+                {loading && (
                     <ActivityIndicator color={COLORS.accent} style={{ marginTop: 10 }} />
                 )}
-                {!isFutures && error && (
+                {error && (
                     <TouchableOpacity onPress={reload}>
                         <Text style={styles.errorText}>일정을 불러오지 못했어요. 눌러서 다시 시도</Text>
                     </TouchableOpacity>
@@ -285,7 +283,7 @@ export default function ScheduleScreen() {
                         <View style={[styles.dot, styles.dotActive, { marginTop: 0, marginRight: 6 }]} />
                         <Text style={styles.legendText}>경기 있는 날 (눌러서 확인)</Text>
                     </View>
-                    {!isFutures && <Text style={styles.sourceText}>자료 출처: KBO</Text>}
+                    <Text style={styles.sourceText}>자료 출처: KBO</Text>
                 </View>
             </ScrollView>
 
@@ -307,7 +305,15 @@ export default function ScheduleScreen() {
                                 {selectedGames.map((item, i) => (
                                     <View key={i} style={styles.gameBox}>
                                         <View style={styles.gameInfoRow}>
-                                            <Text style={styles.gameInfo}>🕒 {item.time}</Text>
+                                            <Text style={styles.gameInfo}>
+                                                🕒 {item.time}
+                                                {item.exchange ? (
+                                                    <Text style={styles.exchangeTag}>
+                                                        {"  "}
+                                                        {item.exchange === "올스타" ? "올스타전" : "교류전"}
+                                                    </Text>
+                                                ) : null}
+                                            </Text>
                                             <Text
                                                 style={[styles.gameInfo, styles.stadiumInfo]}
                                                 numberOfLines={1}
@@ -347,6 +353,7 @@ export default function ScheduleScreen() {
                                                     navigation.navigate("GameRating", {
                                                         source: "firestore",
                                                         gameId: item.gameId,
+                                                        league: lg,
                                                     });
                                                 }}
                                             >
@@ -528,6 +535,7 @@ const styles = StyleSheet.create({
     sideLabel: { color: COLORS.subText, fontSize: 11, marginTop: 4 },
     scoreText: { color: COLORS.text, fontSize: 22, fontWeight: "800" },
     canceledText: { color: COLORS.sunday, fontSize: 14, fontWeight: "700" },
+    exchangeTag: { color: COLORS.accent, fontSize: 12, fontWeight: "700" },
     errorText: { color: COLORS.sunday, fontSize: 13, textAlign: "center", marginTop: 10 },
     sourceText: { color: COLORS.subText, fontSize: 11, marginTop: 8 },
     vsText: { color: COLORS.accent, fontSize: 16, fontWeight: "700" },

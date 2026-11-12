@@ -6,7 +6,7 @@ import TeamLogo from "../components/TeamLogo";
 import { rateGame } from "../utils/playerRating";
 import { GAME_RESULTS } from "../data/gameResultMock";
 import RatingField, { playerKey } from "../components/RatingField";
-import { useFirestoreDoc } from "../utils/firestoreData";
+import { useFirestoreDoc, leagueDocs } from "../utils/firestoreData";
 
 // ===== 디자인 색상 (다른 화면과 동일) =====
 const COLORS = {
@@ -32,7 +32,8 @@ const ratingColor = (r) => (r >= 8 ? COLORS.accent : r >= 6 ? COLORS.text : COLO
  */
 /**
  * route.params
- *  - Firestore 경기: { source: "firestore", gameId: "2026-06-02_키움_SSG" }  (일정 화면 등)
+ *  - Firestore 경기: { source: "firestore", gameId: "2026-06-02_키움_SSG", league?: "futures" }  (일정 화면 등)
+ *    league 가 "futures" 면 futures_games 에서 읽음
  *  - 임시 데이터:    { date, gameId, home, away }                          (승부예측 임시 카드)
  */
 export default function GameRatingScreen({ navigation, route }) {
@@ -43,7 +44,7 @@ export default function GameRatingScreen({ navigation, route }) {
         loading,
         error,
         reload,
-    } = useFirestoreDoc("games", isFirestore ? params.gameId : null);
+    } = useFirestoreDoc(leagueDocs(params.league).games, isFirestore ? params.gameId : null);
 
     const home = isFirestore ? fsGame?.home : params.home;
     const away = isFirestore ? fsGame?.away : params.away;

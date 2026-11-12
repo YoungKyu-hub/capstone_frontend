@@ -142,15 +142,18 @@ function compare(a, b) {
 }
 
 // ===== Firestore 데이터 → analyzeMatch 에 넣을 팀 기록 =====
-// "45-2-24" (홈/방문: 승-무-패) → { w, l, d }
-const parseWDL = (text) => {
-    const [w, d, l] = String(text || "0-0-0").split("-").map(Number);
+// 1군 홈/방문 "45-2-24" (승-무-패) → { w, l, d }
+// 퓨처스는 백엔드가 이미 { w, l, d } 로 저장 (KBO 퓨처스 표는 승-패-무 순서라서)
+const parseWDL = (value) => {
+    if (value && typeof value === "object") return { w: value.w || 0, l: value.l || 0, d: value.d || 0 };
+    const [w, d, l] = String(value || "0-0-0").split("-").map(Number);
     return { w: w || 0, l: l || 0, d: d || 0 };
 };
-// "9승1무0패" → { w, l, d }
+// 최근 10경기 "9승1무0패"(1군) / "8승2패0무"(퓨처스) → { w, l, d } (순서 상관없이 읽음)
 const parseRecent = (text) => {
-    const m = String(text || "").match(/(\d+)승(\d+)무(\d+)패/);
-    return m ? { w: +m[1], d: +m[2], l: +m[3] } : { w: 0, l: 0, d: 0 };
+    const t = String(text || "");
+    const num = (re) => +(t.match(re)?.[1] || 0);
+    return { w: num(/(\d+)승/), l: num(/(\d+)패/), d: num(/(\d+)무/) };
 };
 
 /**
@@ -168,6 +171,7 @@ export function buildTeamStats(rankRows = [], eloTeams = {}) {
             home: parseWDL(r.home),
             away: parseWDL(r.away),
             streak: r.streak,
+            league: r.league, // 퓨처스: "북부" | "남부" (순위가 리그별)
         };
     });
     return stats;

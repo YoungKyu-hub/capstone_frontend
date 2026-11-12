@@ -13,7 +13,7 @@ import KboTitle from "../components/KboTitle";
 import TeamLogo from "../components/TeamLogo";
 import LeagueToggle from "../components/LeagueToggle";
 import { useLeague } from "../context/LeagueContext";
-import { FUTURES_RANKING, FUTURES_DIVISIONS } from "../data/futuresMock";
+import { FUTURES_DIVISIONS } from "../data/futuresMock";
 import { useFirestoreDoc, formatUpdated } from "../utils/firestoreData";
 
 // ===== 디자인 색상 (피그마 Standings Detail 기준) =====
@@ -28,30 +28,13 @@ const COLORS = {
     rowWildcard: "#3A1E1E", // 4~5위: 와일드카드
 };
 
-// KBO 리그 순위는 Firestore rankings/kbo 문서에서 읽어 온다 (백엔드가 KBO 순위표를 옮겨 올린 것)
-// 퓨처스리그는 아직 임시 데이터(data/futuresMock.js)
-
-const getWinRate = (win, lose) => (win + lose === 0 ? 0 : win / (win + lose));
-
-// 전체 성적 기준으로 순위 계산
-const buildStandings = (data) => {
-    const sorted = [...data].sort(
-        (a, b) => getWinRate(b.win, b.lose) - getWinRate(a.win, a.lose)
-    );
-    if (sorted.length === 0) return [];
-
-    const top = sorted[0];
-    return sorted.map((item, index) => ({
-        ...item,
-        rank: index + 1,
-        winRate: getWinRate(item.win, item.lose).toFixed(3),
-        // 게임차 = ((1위 승 - 팀 승) + (팀 패 - 1위 패)) / 2
-        gb:
-            index === 0
-                ? "-"
-                : ((top.win - item.win + (item.lose - top.lose)) / 2).toFixed(1),
-    }));
-};
+// 순위는 Firestore 에서 읽어 온다 (백엔드가 KBO 순위표를 옮겨 올린 것)
+//   KBO 리그:  rankings/kbo (올해), rankings/kbo_2025 … (지난 시즌)
+//   퓨처스리그: rankings/futures (올해), rankings/futures_2025 … — rows 마다 league: "북부" | "남부"
+const CURRENT_SEASON = 2026;
+const rankDocId = (isFutures, season) =>
+    `${isFutures ? "futures" : "kbo"}${season === CURRENT_SEASON ? "" : `_${season}`}`;
+const DIVISION_NAME = { north: "북부", south: "남부" };
 
 function RankingScreen({ navigation }) {
     const [season, setSeason] = useState(2026);
@@ -59,22 +42,25 @@ function RankingScreen({ navigation }) {
     const { isFutures } = useLeague();
     const [division, setDivision] = useState("north"); // 퓨처스: 북부 / 남부
 
-    const { data: rankDoc, loading, error, reload } = useFirestoreDoc("rankings", "kbo");
+    const { data: rankDoc, loading, error, reload } = useFirestoreDoc(
+        "rankings",
+        rankDocId(isFutures, season)
+    );
 
     const standings = useMemo(() => {
-        if (isFutures) {
-            return buildStandings(FUTURES_RANKING[season]?.[division] || []);
-        }
         // KBO 공식 순위표 값(순위·승률·게임차)을 그대로 사용
         if (!rankDoc || rankDoc.season !== season) return [];
-        return rankDoc.rows.map((r) => ({
+        const rows = isFutures
+            ? rankDoc.rows.filter((r) => r.league === DIVISION_NAME[division])
+            : rankDoc.rows;
+        return rows.map((r) => ({
             ...r,
             id: r.team,
             gb: r.rank === 1 || r.gb === "0" ? "-" : r.gb,
         }));
     }, [season, isFutures, division, rankDoc]);
 
-    const showLoading = !isFutures && loading;
+    const showLoading = loading;
 
     const renderItem = ({ item }) => {
         let rowStyle = null;
@@ -201,7 +187,7 @@ function RankingScreen({ navigation }) {
         </View>
     );
 
-    const SourceNote = !isFutures && rankDoc && rankDoc.season === season && (
+    const SourceNote = rankDoc && rankDoc.season === season && (
         <Text style={styles.sourceText}>
             자료 출처: KBO · {formatUpdated(rankDoc.updatedAt)} 업데이트
         </Text>
@@ -212,6 +198,7 @@ function RankingScreen({ navigation }) {
             <Text style={styles.legendText}>
                 퓨처스리그는 북부 · 남부리그별로 순위를 매겨요
             </Text>
+            {SourceNote}
         </View>
     ) : (
         <View style={styles.legend}>
@@ -238,7 +225,7 @@ function RankingScreen({ navigation }) {
                 ListEmptyComponent={
                     showLoading ? (
                         <ActivityIndicator color={COLORS.pill} style={{ marginTop: 30 }} />
-                    ) : error && !isFutures ? (
+                    ) : error ? (
                         <TouchableOpacity onPress={reload}>
                             <Text style={styles.empty}>
                                 순위를 불러오지 못했어요. 눌러서 다시 시도
